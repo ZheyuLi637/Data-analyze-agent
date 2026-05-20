@@ -39,7 +39,14 @@ class ClarificationTest(unittest.TestCase):
         self.assertTrue(context["ambiguous"])
         self.assertIn("Clarification suggestion used for planning", context["planning_goal"])
 
+    def test_missing_values_are_suggested_first(self):
+        df = pd.DataFrame({"date": ["2026-01-01", None], "sales": [100, None]})
+        profile = perceive_dataset(df)
+
+        suggestions = suggest_clarifications(profile)
+
+        self.assertTrue(suggestions[0].startswith("Audit missing values"))
+
 
 if __name__ == "__main__":
     unittest.main()
-

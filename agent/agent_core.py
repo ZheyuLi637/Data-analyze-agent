@@ -45,6 +45,22 @@ class DataAnalysisAgent:
         profile = perceive_dataset(df)
         trace.append({"stage": "perceive", "content": profile.to_dict()})
 
+        if profile.row_count == 0:
+            plan = PlanResult(steps=[], source="no_data", error="Dataset has no rows.")
+            final_answer = "Dataset has no rows. Upload a CSV with at least one data row before running analysis."
+            trace.append({"stage": "plan", "content": plan.to_dict()})
+            trace.append({"stage": "final_answer", "content": final_answer})
+            return AgentRun(
+                goal=goal,
+                profile=profile,
+                plan=plan,
+                tool_results=[],
+                final_answer=final_answer,
+                trace=trace,
+                clarification={"ambiguous": False, "suggestions": [], "planning_goal": goal},
+                guardrail={"blocked": False, "reason": "", "matched_terms": []},
+            )
+
         guardrail = evaluate_guardrail(goal)
         trace.append({"stage": "guardrail", "content": guardrail})
         if guardrail["blocked"]:

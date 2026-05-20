@@ -52,6 +52,10 @@ def goal_is_ambiguous(goal: str) -> bool:
 def suggest_clarifications(profile: DatasetProfile) -> list[str]:
     suggestions: list[str] = []
 
+    missing_columns = [column for column, count in profile.missing_values.items() if count > 0]
+    if missing_columns:
+        suggestions.append("Audit missing values and explain which columns may reduce analysis reliability.")
+
     if profile.date_columns and profile.numeric_columns:
         suggestions.append(
             f"Analyze the trend of {profile.numeric_columns[0]} over {profile.date_columns[0]} and identify recent changes."
@@ -66,9 +70,6 @@ def suggest_clarifications(profile: DatasetProfile) -> list[str]:
         suggestions.append(
             f"Find relationships between {profile.numeric_columns[0]} and {profile.numeric_columns[1]} and explain possible risks."
         )
-
-    if any(count > 0 for count in profile.missing_values.values()):
-        suggestions.append("Audit missing values and explain which columns may reduce analysis reliability.")
 
     if not suggestions:
         suggestions.append("Summarize the dataset structure and identify the most useful next analysis step.")
@@ -90,4 +91,3 @@ def _planning_goal(goal: str, suggestions: list[str]) -> str:
     if not suggestions:
         return goal
     return f"{goal}\nClarification suggestion used for planning: {suggestions[0]}"
-

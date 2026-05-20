@@ -1,0 +1,10 @@
+date,region,product_category,sales,profit,discount,customer_segment,units_sold
+2026-01-01,North,Software,12500,4100,0.05,Enterprise,42
+2026-01-08,,Hardware,8700,,0.12,SMB,31
+,South,Software,14300,5200,,Enterprise,48
+2026-01-22,East,,7600,2600,0.02,,18
+2026-01-29,West,Hardware,,1500,0.15,SMB,
+,North,Services,8200,,0.03,Mid-Market,21
+2026-02-12,South,Hardware,9900,1700,,,
+2026-02-19,,Software,,5600,0.05,Enterprise,52
+

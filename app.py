@@ -71,6 +71,9 @@ goal = st.text_area("Agent goal", height=90, key="goal_text")
 df = read_input_data(uploaded)
 preview_profile = perceive_dataset(df)
 
+if preview_profile.row_count == 0:
+    st.error("Dataset has no rows. Upload a CSV with at least one data row before running analysis.")
+
 if goal_is_ambiguous(goal):
     suggestions = suggest_clarifications(preview_profile)
     st.info("The goal is broad. Choose a suggested focus or run the agent with the first suggestion as planning context.")

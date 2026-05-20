@@ -37,7 +37,18 @@ class AgentCoreTest(unittest.TestCase):
 
         self.assertGreater(updated["dataset_summary"], scores["dataset_summary"])
 
+    def test_empty_dataset_returns_no_data_plan(self):
+        df = pd.DataFrame(columns=["date", "sales"])
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "analyze this data", initial_tool_scores())
+
+        self.assertEqual(run.plan.source, "no_data")
+        self.assertEqual(run.tool_results, [])
+        self.assertIn("Dataset has no rows", run.final_answer)
+
 
 if __name__ == "__main__":
     unittest.main()
-

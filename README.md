@@ -91,6 +91,17 @@ export LLM_MODEL="qwen-plus"
 python -m unittest discover tests
 ```
 
+## Boundary CSV Fixtures
+
+The `data/` folder includes datasets for manual edge-case testing:
+
+- `edge_text_only.csv`: one text column; should skip correlation and trend analysis.
+- `edge_numeric_only.csv`: numeric-only data; should skip group comparison.
+- `edge_messy_dates.csv`: mixed date quality; should run trend analysis only if dates are reliably detected.
+- `edge_many_missing.csv`: many missing values; should prioritize missing value checking.
+- `edge_empty_header_only.csv`: header-only CSV; should show `Dataset has no rows`.
+- `edge_large_sales.csv`: larger sample for checking load time and chart responsiveness.
+
 ## Demo Video
 
 Add the final two-minute demo link here after recording:

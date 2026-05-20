@@ -1,0 +1,10 @@
+date,region,sales,profit
+2026-01-01,North,1200,300
+not-a-date,South,980,160
+2026/01/15,East,1350,330
+31-02-2026,West,870,90
+unknown,North,1420,360
+2026-02-10,South,1510,400
+next friday,East,990,120
+missing,West,1100,210
+
