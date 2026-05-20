@@ -7,6 +7,7 @@ import streamlit as st
 
 from agent.agent_core import DataAnalysisAgent
 from agent.clarification import clarification_context
+from agent.evaluation import run_evaluation
 from agent.llm_client import LLMConfig, OpenAICompatibleClient
 from agent.memory import initial_tool_scores, update_tool_scores
 from agent.perception import perceive_dataset
@@ -30,6 +31,8 @@ def ensure_state() -> None:
         st.session_state.last_run = None
     if "goal_text" not in st.session_state:
         st.session_state.goal_text = DEFAULT_GOAL
+    if "evaluation_results" not in st.session_state:
+        st.session_state.evaluation_results = None
     if "pending_goal_text" in st.session_state:
         st.session_state.goal_text = st.session_state.pop("pending_goal_text")
 
@@ -174,3 +177,35 @@ if run:
                     "not_useful",
                 )
                 st.rerun()
+
+st.divider()
+st.subheader("Evaluation Dashboard")
+st.caption(
+    "Runs a deterministic edge-case suite with the LLM disabled, so the score reflects the agent policy, guardrails, tools, and fallback behavior."
+)
+
+if st.button("Run Evaluation Suite"):
+    st.session_state.evaluation_results = run_evaluation(use_llm=False)
+
+evaluation_results = st.session_state.evaluation_results
+if evaluation_results:
+    passed_count = sum(result.passed for result in evaluation_results)
+    total_count = len(evaluation_results)
+    pass_rate = passed_count / total_count if total_count else 0
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("Passed cases", f"{passed_count}/{total_count}")
+    metric_cols[1].metric("Pass rate", f"{pass_rate:.0%}")
+    metric_cols[2].metric(
+        "Failed cases",
+        str(total_count - passed_count),
+    )
+
+    if passed_count == total_count:
+        st.success("All evaluation scenarios passed.")
+    else:
+        st.warning("Some scenarios need attention. Check the issues column.")
+
+    st.dataframe(
+        pd.DataFrame([result.to_dict() for result in evaluation_results]),
+        width="stretch",
+    )

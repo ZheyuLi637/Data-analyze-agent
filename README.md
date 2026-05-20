@@ -29,6 +29,7 @@ This maps to course concepts: environment, observation/state, action, policy, to
 - Goal-aware fallback planning so trend, group comparison, relationship, and quality prompts choose different tool paths.
 - Safe predefined analysis tools; the LLM never executes arbitrary code.
 - Safety guardrails that block requests to bypass validation, run arbitrary Python, execute shell commands, or inspect local files.
+- Evaluation dashboard that runs deterministic edge-case checks and reports pass/fail results inside the app.
 - Lightweight feedback memory that adjusts future tool priorities.
 - Unit tests for perception, planning, tool execution, and feedback.
 
@@ -91,6 +92,8 @@ export LLM_MODEL="qwen-plus"
 ```bash
 python -m unittest discover tests
 ```
+
+The Streamlit app also includes an **Evaluation Dashboard**. Click `Run Evaluation Suite` to run the core grading-oriented scenarios with the LLM disabled: text-only data, numeric-only data, messy dates, missing values, empty CSV, safety guardrail, unclear goal, and large trend data.
 
 ## Boundary CSV Fixtures
 
