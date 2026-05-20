@@ -48,7 +48,26 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("correlation_analysis", tools)
         self.assertIn("group_comparison", tools)
         self.assertIn("trend_analysis", tools)
-        self.assertIn("chart_generation", tools)
+        self.assertLessEqual(len(tools), 4)
+
+    def test_fallback_uses_goal_focus(self):
+        df = pd.DataFrame(
+            {
+                "date": ["2026-01-01", "2026-01-02"],
+                "region": ["North", "South"],
+                "sales": [100, 120],
+                "profit": [20, 30],
+            }
+        )
+        profile = perceive_dataset(df)
+
+        trend_tools = [step.tool_name for step in fallback_plan(profile, goal="Analyze sales trends over time")]
+        group_tools = [step.tool_name for step in fallback_plan(profile, goal="Compare sales by region")]
+
+        self.assertIn("trend_analysis", trend_tools)
+        self.assertNotIn("group_comparison", trend_tools)
+        self.assertIn("group_comparison", group_tools)
+        self.assertNotIn("trend_analysis", group_tools)
 
     def test_plan_falls_back_without_llm(self):
         df = pd.DataFrame({"x": [1, 2], "y": [3, 4]})
@@ -62,4 +81,3 @@ class PlannerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

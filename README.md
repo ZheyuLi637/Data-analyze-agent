@@ -25,7 +25,9 @@ This maps to course concepts: environment, observation/state, action, policy, to
 - Ambiguous goal detection with dataset-specific clarification suggestions.
 - OpenAI-compatible LLM configuration through environment variables.
 - Deterministic fallback planner when no API key is available or the LLM fails.
+- Goal-aware fallback planning so trend, group comparison, relationship, and quality prompts choose different tool paths.
 - Safe predefined analysis tools; the LLM never executes arbitrary code.
+- Safety guardrails that block requests to bypass validation, run arbitrary Python, execute shell commands, or inspect local files.
 - Lightweight feedback memory that adjusts future tool priorities.
 - Unit tests for perception, planning, tool execution, and feedback.
 
@@ -126,3 +128,4 @@ Suggested local checkpoint history:
 - The LLM receives a compact dataset profile, not arbitrary code execution rights.
 - LLM tool selections are validated against an allowlist.
 - Invalid LLM output falls back to deterministic planning.
+- Unsafe goals are blocked before tool execution, so no charts or tables are generated for requests outside the CSV-analysis boundary.

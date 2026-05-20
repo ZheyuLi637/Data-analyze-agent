@@ -95,6 +95,7 @@ if run:
         "clarification",
         {"ambiguous": False, "suggestions": [], "planning_goal": run.goal},
     )
+    guardrail = getattr(run, "guardrail", {"blocked": False, "reason": "", "matched_terms": []})
 
     st.subheader("Agent Trace")
     trace_tabs = st.tabs(["Perceive", "Plan", "Act", "Observe", "Final Answer"])
@@ -103,6 +104,9 @@ if run:
         st.json(run.profile.to_dict())
 
     with trace_tabs[1]:
+        if guardrail["blocked"]:
+            st.error("Safety guardrail blocked this request. No analysis tools were executed.")
+            st.write(guardrail["reason"])
         if clarification["ambiguous"]:
             st.info("Clarification suggestions were generated because the goal was broad.")
             st.write(clarification["suggestions"])
@@ -129,29 +133,33 @@ if run:
         st.write(run.final_answer)
 
     st.subheader("Tool Outputs")
-    for result in run.tool_results:
-        with st.expander(result.title, expanded=True):
-            st.write(result.observation)
-            if result.table is not None:
-                st.dataframe(result.table, width="stretch")
-            if result.figure is not None:
-                st.pyplot(result.figure)
+    if not run.tool_results:
+        st.info("No tools were executed for this run.")
+    else:
+        for result in run.tool_results:
+            with st.expander(result.title, expanded=True):
+                st.write(result.observation)
+                if result.table is not None:
+                    st.dataframe(result.table, width="stretch")
+                if result.figure is not None:
+                    st.pyplot(result.figure)
 
-    st.subheader("Feedback")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Useful"):
-            st.session_state.tool_scores = update_tool_scores(
-                st.session_state.tool_scores,
-                run.tools_used,
-                "useful",
-            )
-            st.rerun()
-    with col2:
-        if st.button("Not useful"):
-            st.session_state.tool_scores = update_tool_scores(
-                st.session_state.tool_scores,
-                run.tools_used,
-                "not_useful",
-            )
-            st.rerun()
+    if run.tool_results:
+        st.subheader("Feedback")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Useful"):
+                st.session_state.tool_scores = update_tool_scores(
+                    st.session_state.tool_scores,
+                    run.tools_used,
+                    "useful",
+                )
+                st.rerun()
+        with col2:
+            if st.button("Not useful"):
+                st.session_state.tool_scores = update_tool_scores(
+                    st.session_state.tool_scores,
+                    run.tools_used,
+                    "not_useful",
+                )
+                st.rerun()

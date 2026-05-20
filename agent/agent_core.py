@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from agent.clarification import clarification_context
+from agent.guardrails import evaluate_guardrail, guardrail_message
 from agent.llm_client import OpenAICompatibleClient, compact_json
 from agent.memory import initial_tool_scores
 from agent.perception import DatasetProfile, perceive_dataset
@@ -21,6 +22,7 @@ class AgentRun:
     final_answer: str
     trace: list[dict]
     clarification: dict
+    guardrail: dict
 
     @property
     def tools_used(self) -> list[str]:
@@ -42,6 +44,24 @@ class DataAnalysisAgent:
 
         profile = perceive_dataset(df)
         trace.append({"stage": "perceive", "content": profile.to_dict()})
+
+        guardrail = evaluate_guardrail(goal)
+        trace.append({"stage": "guardrail", "content": guardrail})
+        if guardrail["blocked"]:
+            plan = PlanResult(steps=[], source="blocked", error=guardrail["reason"])
+            final_answer = guardrail_message(guardrail)
+            trace.append({"stage": "plan", "content": plan.to_dict()})
+            trace.append({"stage": "final_answer", "content": final_answer})
+            return AgentRun(
+                goal=goal,
+                profile=profile,
+                plan=plan,
+                tool_results=[],
+                final_answer=final_answer,
+                trace=trace,
+                clarification={"ambiguous": False, "suggestions": [], "planning_goal": goal},
+                guardrail=guardrail,
+            )
 
         clarification = clarification_context(goal, profile)
         trace.append({"stage": "clarify", "content": clarification})
@@ -74,6 +94,7 @@ class DataAnalysisAgent:
             final_answer=final_answer,
             trace=trace,
             clarification=clarification,
+            guardrail=guardrail,
         )
 
     def _synthesize(

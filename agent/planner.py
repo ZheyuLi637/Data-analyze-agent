@@ -18,6 +18,7 @@ ALLOWED_TOOL_DESCRIPTIONS = {
 }
 
 ALLOWED_TOOLS = set(ALLOWED_TOOL_DESCRIPTIONS)
+MAX_PLAN_STEPS = 4
 
 
 @dataclass
@@ -58,10 +59,10 @@ def plan_analysis(
             steps = parse_llm_plan(raw_response)
             return PlanResult(steps=steps, source="llm", raw_response=raw_response)
         except Exception as exc:
-            fallback = fallback_plan(profile, tool_scores)
+            fallback = fallback_plan(profile, tool_scores, goal)
             return PlanResult(steps=fallback, source="fallback", error=str(exc))
 
-    return PlanResult(steps=fallback_plan(profile, tool_scores), source="fallback")
+    return PlanResult(steps=fallback_plan(profile, tool_scores, goal), source="fallback")
 
 
 def parse_llm_plan(raw_response: str) -> list[PlanStep]:
@@ -85,11 +86,27 @@ def parse_llm_plan(raw_response: str) -> list[PlanStep]:
             )
         )
 
-    return _deduplicate_steps(steps)
+    return _deduplicate_steps(steps)[:MAX_PLAN_STEPS]
 
 
-def fallback_plan(profile: DatasetProfile, tool_scores: dict[str, float] | None = None) -> list[PlanStep]:
+def fallback_plan(
+    profile: DatasetProfile,
+    tool_scores: dict[str, float] | None = None,
+    goal: str = "",
+) -> list[PlanStep]:
     scores = tool_scores or {}
+    candidates = _candidate_steps(profile)
+    focused = _focus_steps(candidates, goal)
+
+    if focused:
+        return _deduplicate_steps(focused)[:MAX_PLAN_STEPS]
+
+    head = candidates[:1]
+    tail = sorted(candidates[1:], key=lambda step: scores.get(step.tool_name, 1.0), reverse=True)
+    return _deduplicate_steps(head + tail)[:MAX_PLAN_STEPS]
+
+
+def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
     candidates: list[PlanStep] = [
         PlanStep(
             "dataset_summary",
@@ -139,9 +156,36 @@ def fallback_plan(profile: DatasetProfile, tool_scores: dict[str, float] | None 
         )
     )
 
-    head = candidates[:1]
-    tail = sorted(candidates[1:], key=lambda step: scores.get(step.tool_name, 1.0), reverse=True)
-    return _deduplicate_steps(head + tail)
+    return candidates
+
+
+def _focus_steps(candidates: list[PlanStep], goal: str) -> list[PlanStep]:
+    lowered = goal.lower()
+    by_tool = {step.tool_name: step for step in candidates}
+    selected: list[PlanStep] = []
+
+    def add(tool_name: str) -> None:
+        if tool_name in by_tool:
+            selected.append(by_tool[tool_name])
+
+    add("dataset_summary")
+
+    if any(token in lowered for token in ("quality", "missing", "null", "clean", "audit", "reliability")):
+        add("missing_value_check")
+        add("chart_generation")
+    elif any(token in lowered for token in ("trend", "time", "date", "over time", "recent")):
+        add("trend_analysis")
+        add("chart_generation")
+    elif any(token in lowered for token in ("region", "category", "segment", "group", "compare", "weakest", "strongest")):
+        add("group_comparison")
+        add("chart_generation")
+    elif any(token in lowered for token in ("correlation", "relationship", "discount", "profit", "risk", "risky")):
+        add("correlation_analysis")
+        add("group_comparison")
+    else:
+        return []
+
+    return selected
 
 
 def _request_llm_plan(
@@ -152,7 +196,8 @@ def _request_llm_plan(
 ) -> str:
     system = (
         "You are a data analysis planning agent. Select only from the allowed tools. "
-        "Do not write Python code. Return only JSON."
+        "Choose only the 2 to 4 tools that best match the user goal and observed dataset state. "
+        "Do not select every tool by default. Do not write Python code. Return only JSON."
     )
     user = {
         "goal": goal,
@@ -168,6 +213,13 @@ def _request_llm_plan(
                 }
             ]
         },
+        "planning_rules": [
+            "Prefer trend_analysis only for time/date goals.",
+            "Prefer group_comparison for compare, region, category, segment, strongest, or weakest goals.",
+            "Prefer correlation_analysis for relationship, discount, profit, or risk goals.",
+            "Prefer missing_value_check for quality, missing, audit, or reliability goals.",
+            "Do not request arbitrary code execution or unknown tools.",
+        ],
     }
     return llm_client.chat(
         [
@@ -197,4 +249,3 @@ def _deduplicate_steps(steps: list[PlanStep]) -> list[PlanStep]:
         seen.add(step.tool_name)
         result.append(step)
     return result
-
