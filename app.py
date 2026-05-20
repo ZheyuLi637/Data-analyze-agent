@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from agent.agent_core import DataAnalysisAgent
-from agent.clarification import goal_is_ambiguous, suggest_clarifications
+from agent.clarification import clarification_context
 from agent.llm_client import LLMConfig, OpenAICompatibleClient
 from agent.memory import initial_tool_scores, update_tool_scores
 from agent.perception import perceive_dataset
@@ -70,13 +70,17 @@ goal = st.text_area("Agent goal", height=90, key="goal_text")
 
 df = read_input_data(uploaded)
 preview_profile = perceive_dataset(df)
+preview_clarification = clarification_context(goal, preview_profile)
 
 if preview_profile.row_count == 0:
     st.error("Dataset has no rows. Upload a CSV with at least one data row before running analysis.")
 
-if goal_is_ambiguous(goal):
-    suggestions = suggest_clarifications(preview_profile)
-    st.info("The goal is broad. Choose a suggested focus or run the agent with the first suggestion as planning context.")
+if preview_clarification["ambiguous"]:
+    suggestions = preview_clarification["suggestions"]
+    if preview_clarification["requires_user_input"]:
+        st.warning("The goal is not interpretable enough to choose safe actions. Choose a suggested focus before running the agent.")
+    else:
+        st.info("The goal is broad. Choose a suggested focus or run the agent with the first suggestion as planning context.")
     cols = st.columns(len(suggestions))
     for index, suggestion in enumerate(suggestions):
         with cols[index]:
@@ -110,6 +114,8 @@ if run:
         if guardrail["blocked"]:
             st.error("Safety guardrail blocked this request. No analysis tools were executed.")
             st.write(guardrail["reason"])
+        if clarification.get("requires_user_input"):
+            st.warning("The agent needs a clearer analysis goal before executing tools.")
         if clarification["ambiguous"]:
             st.info("Clarification suggestions were generated because the goal was broad.")
             st.write(clarification["suggestions"])

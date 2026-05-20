@@ -2,7 +2,12 @@ import unittest
 
 import pandas as pd
 
-from agent.clarification import clarification_context, goal_is_ambiguous, suggest_clarifications
+from agent.clarification import (
+    clarification_context,
+    goal_has_analysis_intent,
+    goal_is_ambiguous,
+    suggest_clarifications,
+)
 from agent.perception import perceive_dataset
 
 
@@ -37,6 +42,7 @@ class ClarificationTest(unittest.TestCase):
         context = clarification_context("help me analyze", profile)
 
         self.assertTrue(context["ambiguous"])
+        self.assertFalse(context["requires_user_input"])
         self.assertIn("Clarification suggestion used for planning", context["planning_goal"])
 
     def test_missing_values_are_suggested_first(self):
@@ -46,6 +52,17 @@ class ClarificationTest(unittest.TestCase):
         suggestions = suggest_clarifications(profile)
 
         self.assertTrue(suggestions[0].startswith("Audit missing values"))
+
+    def test_uninterpretable_goal_requires_user_input(self):
+        df = pd.DataFrame({"sales": [100, 120], "profit": [20, 30]})
+        profile = perceive_dataset(df)
+
+        context = clarification_context("啦啦啦", profile)
+
+        self.assertTrue(context["ambiguous"])
+        self.assertFalse(goal_has_analysis_intent("啦啦啦", profile))
+        self.assertTrue(context["requires_user_input"])
+        self.assertNotIn("Clarification suggestion used for planning", context["planning_goal"])
 
 
 if __name__ == "__main__":

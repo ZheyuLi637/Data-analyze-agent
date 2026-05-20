@@ -59,6 +59,29 @@ class AgentCoreTest(unittest.TestCase):
 
         self.assertTrue(any("date column was not reliably detected" in item for item in constraints))
 
+    def test_uninterpretable_goal_executes_no_tools(self):
+        df = pd.DataFrame({"sales": [100, 120], "profit": [20, 30]})
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "啦啦啦", initial_tool_scores())
+
+        self.assertEqual(run.plan.source, "needs_clarification")
+        self.assertEqual(run.tool_results, [])
+        self.assertTrue(run.clarification["requires_user_input"])
+
+    def test_broad_but_meaningful_goal_still_runs(self):
+        df = pd.DataFrame({"sales": [100, 120], "profit": [20, 30]})
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "Analyze this data", initial_tool_scores())
+
+        self.assertNotEqual(run.plan.source, "needs_clarification")
+        self.assertGreater(len(run.tool_results), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

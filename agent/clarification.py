@@ -32,6 +32,42 @@ VAGUE_CHINESE_PHRASES = (
     "帮我分析",
 )
 
+ANALYSIS_INTENT_ENGLISH = {
+    "analyze",
+    "analyse",
+    "audit",
+    "check",
+    "compare",
+    "correlation",
+    "explain",
+    "find",
+    "help",
+    "insight",
+    "insights",
+    "pattern",
+    "patterns",
+    "quality",
+    "relationship",
+    "risk",
+    "risks",
+    "summarize",
+    "summary",
+    "trend",
+    "understand",
+}
+
+ANALYSIS_INTENT_CHINESE = (
+    "分析",
+    "比较",
+    "趋势",
+    "风险",
+    "质量",
+    "缺失",
+    "关系",
+    "总结",
+    "看看",
+)
+
 
 def goal_is_ambiguous(goal: str) -> bool:
     cleaned = goal.strip().lower()
@@ -79,15 +115,32 @@ def suggest_clarifications(profile: DatasetProfile) -> list[str]:
 
 def clarification_context(goal: str, profile: DatasetProfile) -> dict:
     ambiguous = goal_is_ambiguous(goal)
+    requires_user_input = ambiguous and not goal_has_analysis_intent(goal, profile)
     suggestions = suggest_clarifications(profile) if ambiguous else []
     return {
         "ambiguous": ambiguous,
+        "requires_user_input": requires_user_input,
         "suggestions": suggestions,
-        "planning_goal": _planning_goal(goal, suggestions),
+        "planning_goal": _planning_goal(goal, suggestions, requires_user_input),
     }
 
 
-def _planning_goal(goal: str, suggestions: list[str]) -> str:
-    if not suggestions:
+def goal_has_analysis_intent(goal: str, profile: DatasetProfile) -> bool:
+    cleaned = goal.strip().lower()
+    if not cleaned:
+        return False
+
+    if any(phrase in cleaned for phrase in ANALYSIS_INTENT_CHINESE):
+        return True
+
+    words = set(re.findall(r"[a-zA-Z0-9_]+", cleaned))
+    if words & ANALYSIS_INTENT_ENGLISH:
+        return True
+
+    return any(column.lower() in cleaned for column in profile.columns if len(column) > 1)
+
+
+def _planning_goal(goal: str, suggestions: list[str], requires_user_input: bool) -> str:
+    if not suggestions or requires_user_input:
         return goal
     return f"{goal}\nClarification suggestion used for planning: {suggestions[0]}"

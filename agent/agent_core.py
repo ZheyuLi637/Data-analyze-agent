@@ -81,6 +81,24 @@ class DataAnalysisAgent:
 
         clarification = clarification_context(goal, profile)
         trace.append({"stage": "clarify", "content": clarification})
+        if clarification["requires_user_input"]:
+            plan = PlanResult(steps=[], source="needs_clarification", error="Goal is not interpretable enough to choose safe actions.")
+            final_answer = (
+                "I could not identify a data-analysis goal from this input. "
+                "Choose one of the clarification suggestions or describe what pattern, risk, trend, relationship, or data-quality issue you want analyzed."
+            )
+            trace.append({"stage": "plan", "content": plan.to_dict()})
+            trace.append({"stage": "final_answer", "content": final_answer})
+            return AgentRun(
+                goal=goal,
+                profile=profile,
+                plan=plan,
+                tool_results=[],
+                final_answer=final_answer,
+                trace=trace,
+                clarification=clarification,
+                guardrail=guardrail,
+            )
 
         plan = plan_analysis(clarification["planning_goal"], profile, scores, self.llm_client)
         trace.append({"stage": "plan", "content": plan.to_dict()})
