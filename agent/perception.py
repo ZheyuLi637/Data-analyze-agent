@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import asdict, dataclass
 
 import pandas as pd
@@ -61,9 +62,10 @@ def _detect_date_columns(df: pd.DataFrame) -> list[str]:
         name_hint = any(token in column.lower() for token in ("date", "time", "day"))
         if not name_hint and not pd.api.types.is_datetime64_any_dtype(df[column]):
             continue
-        parsed = pd.to_datetime(series, errors="coerce")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            parsed = pd.to_datetime(series, errors="coerce")
         success_ratio = parsed.notna().mean()
         if success_ratio >= 0.8:
             date_columns.append(column)
     return date_columns
-

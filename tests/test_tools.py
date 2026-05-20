@@ -29,6 +29,14 @@ class ToolsTest(unittest.TestCase):
 
         self.assertIsNotNone(result.figure)
         self.assertIsNotNone(result.table)
+        self.assertIn("Top pairs", result.observation)
+
+    def test_group_comparison_includes_multiple_categorical_columns(self):
+        result = execute_tool("group_comparison", self.df, self.profile)
+
+        self.assertIsNotNone(result.table)
+        self.assertIn("group_column", result.table.columns)
+        self.assertIn("region", set(result.table["group_column"]))
 
     def test_unknown_tool_raises(self):
         with self.assertRaises(ValueError):
@@ -37,4 +45,3 @@ class ToolsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

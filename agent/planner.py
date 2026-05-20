@@ -56,7 +56,9 @@ def plan_analysis(
     if llm_client and llm_client.ready:
         try:
             raw_response = _request_llm_plan(goal, profile, tool_scores, llm_client)
-            steps = parse_llm_plan(raw_response)
+            steps = filter_applicable_steps(parse_llm_plan(raw_response), profile)
+            if not steps:
+                raise ValueError("LLM plan did not contain any applicable tools for this dataset.")
             return PlanResult(steps=steps, source="llm", raw_response=raw_response)
         except Exception as exc:
             fallback = fallback_plan(profile, tool_scores, goal)
@@ -87,6 +89,21 @@ def parse_llm_plan(raw_response: str) -> list[PlanStep]:
         )
 
     return _deduplicate_steps(steps)[:MAX_PLAN_STEPS]
+
+
+def filter_applicable_steps(steps: list[PlanStep], profile: DatasetProfile) -> list[PlanStep]:
+    applicable: list[PlanStep] = []
+    for step in steps:
+        if step.tool_name == "correlation_analysis" and len(profile.numeric_columns) < 2:
+            continue
+        if step.tool_name == "group_comparison" and not (profile.categorical_columns and profile.numeric_columns):
+            continue
+        if step.tool_name == "trend_analysis" and not (profile.date_columns and profile.numeric_columns):
+            continue
+        if step.tool_name == "missing_value_check" and not any(count > 0 for count in profile.missing_values.values()):
+            continue
+        applicable.append(step)
+    return applicable[:MAX_PLAN_STEPS]
 
 
 def fallback_plan(
@@ -214,10 +231,15 @@ def _request_llm_plan(
             ]
         },
         "planning_rules": [
+            "Select dataset_summary when baseline statistics are useful.",
             "Prefer trend_analysis only for time/date goals.",
+            "Use trend_analysis only when dataset_profile.date_columns is non-empty.",
             "Prefer group_comparison for compare, region, category, segment, strongest, or weakest goals.",
+            "Use group_comparison only when categorical and numeric columns are both available.",
             "Prefer correlation_analysis for relationship, discount, profit, or risk goals.",
+            "Use correlation_analysis only when at least two numeric columns are available.",
             "Prefer missing_value_check for quality, missing, audit, or reliability goals.",
+            "Use missing_value_check only when missing values exist.",
             "Do not request arbitrary code execution or unknown tools.",
         ],
     }
@@ -232,12 +254,20 @@ def _request_llm_plan(
 
 def _extract_json(text: str) -> str:
     cleaned = text.strip()
-    if cleaned.startswith("{"):
-        return cleaned
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(cleaned):
+        if char != "{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(cleaned[index:])
+            return json.dumps(payload)
+        except json.JSONDecodeError:
+            continue
+
     match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
-    if not match:
-        raise ValueError("LLM response did not contain JSON.")
-    return match.group(0)
+    if match:
+        return match.group(0)
+    raise ValueError("LLM response did not contain JSON.")
 
 
 def _deduplicate_steps(steps: list[PlanStep]) -> list[PlanStep]:

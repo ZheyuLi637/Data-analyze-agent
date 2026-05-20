@@ -3,7 +3,7 @@ import unittest
 import pandas as pd
 
 from agent.perception import perceive_dataset
-from agent.planner import fallback_plan, parse_llm_plan, plan_analysis
+from agent.planner import fallback_plan, filter_applicable_steps, parse_llm_plan, plan_analysis
 
 
 class PlannerTest(unittest.TestCase):
@@ -30,6 +30,16 @@ class PlannerTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             parse_llm_plan(raw)
+
+    def test_parse_json_with_trailing_text(self):
+        raw = (
+            '{"tools":[{"tool_name":"chart_generation","reason":"visual",'
+            '"expected_insight":"chart"}]} trailing explanation'
+        )
+
+        steps = parse_llm_plan(raw)
+
+        self.assertEqual([step.tool_name for step in steps], ["chart_generation"])
 
     def test_fallback_selects_expected_tools(self):
         df = pd.DataFrame(
@@ -77,6 +87,18 @@ class PlannerTest(unittest.TestCase):
 
         self.assertEqual(result.source, "fallback")
         self.assertGreaterEqual(len(result.steps), 1)
+
+    def test_filters_inapplicable_llm_steps(self):
+        df = pd.DataFrame({"date": ["bad", "unknown"], "sales": [100, 120]})
+        profile = perceive_dataset(df)
+        steps = parse_llm_plan(
+            '{"tools":[{"tool_name":"trend_analysis","reason":"time","expected_insight":"trend"},'
+            '{"tool_name":"chart_generation","reason":"visual","expected_insight":"chart"}]}'
+        )
+
+        filtered = filter_applicable_steps(steps, profile)
+
+        self.assertEqual([step.tool_name for step in filtered], ["chart_generation"])
 
 
 if __name__ == "__main__":

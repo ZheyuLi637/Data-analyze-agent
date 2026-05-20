@@ -79,10 +79,10 @@ def correlation_analysis(df: pd.DataFrame, profile: DatasetProfile) -> ToolResul
     fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
     fig.tight_layout()
 
-    strongest = _strongest_correlation(corr)
+    top_pairs = _top_correlations(corr)
     observation = (
         f"Computed correlations across {len(numeric)} numeric columns. "
-        f"Strongest pair: {strongest}."
+        f"Top pairs: {'; '.join(top_pairs)}."
     )
     return ToolResult(
         "correlation_analysis",
@@ -101,24 +101,35 @@ def group_comparison(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
             "Skipped group comparison because categorical and numeric columns were not both available.",
         )
 
-    category = profile.categorical_columns[0]
     metric = profile.numeric_columns[0]
-    grouped = (
-        df.groupby(category, dropna=False)[metric]
-        .agg(["count", "mean", "sum"])
-        .round(2)
-        .sort_values("mean", ascending=False)
-        .reset_index()
-    )
+    categories = profile.categorical_columns[:2]
+    grouped_parts = []
+    top_summaries = []
+    for category in categories:
+        part = (
+            df.groupby(category, dropna=False)[metric]
+            .agg(["count", "mean", "sum"])
+            .round(2)
+            .sort_values("mean", ascending=False)
+            .reset_index()
+        )
+        part.insert(0, "group_column", category)
+        part = part.rename(columns={category: "group_value"})
+        grouped_parts.append(part)
+        if not part.empty:
+            top_summaries.append(f"{category}: {part.iloc[0]['group_value']}")
+
+    grouped = pd.concat(grouped_parts, ignore_index=True)
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.bar(grouped[category].astype(str), grouped["mean"], color="#2f6f73")
-    ax.set_xlabel(category)
+    first_category = categories[0]
+    first_group = grouped[grouped["group_column"] == first_category]
+    ax.bar(first_group["group_value"].astype(str), first_group["mean"], color="#2f6f73")
+    ax.set_xlabel(first_category)
     ax.set_ylabel(f"Mean {metric}")
     ax.tick_params(axis="x", rotation=30)
     fig.tight_layout()
 
-    top_group = str(grouped.iloc[0][category]) if not grouped.empty else "n/a"
-    observation = f"Compared {metric} by {category}; top average group is {top_group}."
+    observation = f"Compared {metric} by {', '.join(categories)}; top average groups: {'; '.join(top_summaries)}."
     return ToolResult("group_comparison", "Group Comparison", observation, table=grouped, figure=fig)
 
 
@@ -172,14 +183,13 @@ def chart_generation(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
     return ToolResult("chart_generation", "Chart Generation", observation, figure=fig)
 
 
-def _strongest_correlation(corr: pd.DataFrame) -> str:
-    strongest_pair = "n/a"
-    strongest_value = 0.0
+def _top_correlations(corr: pd.DataFrame) -> list[str]:
+    pairs: list[tuple[float, str]] = []
     columns = list(corr.columns)
     for i, left in enumerate(columns):
         for right in columns[i + 1 :]:
             value = corr.loc[left, right]
-            if pd.notna(value) and abs(value) > abs(strongest_value):
-                strongest_value = float(value)
-                strongest_pair = f"{left} vs {right} ({strongest_value:.2f})"
-    return strongest_pair
+            if pd.notna(value):
+                pairs.append((abs(float(value)), f"{left} vs {right} ({float(value):.2f})"))
+    pairs.sort(reverse=True, key=lambda item: item[0])
+    return [pair for _, pair in pairs[:3]] or ["n/a"]

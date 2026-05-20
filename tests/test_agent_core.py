@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from agent.agent_core import DataAnalysisAgent
+from agent.agent_core import DataAnalysisAgent, _synthesis_constraints
 from agent.llm_client import LLMConfig, OpenAICompatibleClient
 from agent.memory import initial_tool_scores, update_tool_scores
 
@@ -48,6 +48,16 @@ class AgentCoreTest(unittest.TestCase):
         self.assertEqual(run.plan.source, "no_data")
         self.assertEqual(run.tool_results, [])
         self.assertIn("Dataset has no rows", run.final_answer)
+
+    def test_synthesis_constraints_warn_for_unreliable_dates(self):
+        df = pd.DataFrame({"date": ["bad", "unknown"], "sales": [100, 120]})
+        profile = DataAnalysisAgent(
+            OpenAICompatibleClient(LLMConfig(enabled=False, api_key="", base_url="", model=""))
+        ).run(df, "Analyze sales trends over time", initial_tool_scores()).profile
+
+        constraints = _synthesis_constraints("Analyze sales trends over time", profile)
+
+        self.assertTrue(any("date column was not reliably detected" in item for item in constraints))
 
 
 if __name__ == "__main__":

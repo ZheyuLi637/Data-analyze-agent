@@ -143,7 +143,9 @@ class DataAnalysisAgent:
             "goal": goal,
             "dataset_profile": profile.to_dict(),
             "plan_source": plan.source,
+            "plan_error": plan.error,
             "tool_observations": observations,
+            "constraints": _synthesis_constraints(goal, profile),
             "format": "Return 4 concise bullets: state observed, actions taken, key findings, next step.",
         }
         return self.llm_client.chat(
@@ -172,3 +174,17 @@ def _fallback_summary(
         "Next step: review the generated tables and charts, then provide feedback so the agent can adjust tool priorities."
     )
     return "\n".join(lines)
+
+
+def _synthesis_constraints(goal: str, profile: DatasetProfile) -> list[str]:
+    constraints: list[str] = []
+    lowered = goal.lower()
+    if any(token in lowered for token in ("trend", "over time", "date", "time")) and not profile.date_columns:
+        constraints.append(
+            "The date column was not reliably detected. Do not claim trend analysis is possible until dates are cleaned."
+        )
+    if not profile.numeric_columns:
+        constraints.append("No numeric columns were detected. Do not claim numeric statistics or correlations.")
+    if not profile.categorical_columns:
+        constraints.append("No categorical columns were detected. Do not claim group comparison results.")
+    return constraints
