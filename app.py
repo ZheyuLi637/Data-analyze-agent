@@ -6,8 +6,10 @@ import pandas as pd
 import streamlit as st
 
 from agent.agent_core import DataAnalysisAgent
+from agent.clarification import goal_is_ambiguous, suggest_clarifications
 from agent.llm_client import LLMConfig, OpenAICompatibleClient
 from agent.memory import initial_tool_scores, update_tool_scores
+from agent.perception import perceive_dataset
 
 
 SAMPLE_DATA = Path("data/sample_sales.csv")
@@ -26,6 +28,8 @@ def ensure_state() -> None:
         st.session_state.tool_scores = initial_tool_scores()
     if "last_run" not in st.session_state:
         st.session_state.last_run = None
+    if "goal_text" not in st.session_state:
+        st.session_state.goal_text = DEFAULT_GOAL
 
 
 def read_input_data(uploaded_file) -> pd.DataFrame:
@@ -62,11 +66,23 @@ with st.sidebar:
     st.json(st.session_state.tool_scores)
 
 uploaded = st.file_uploader("Upload CSV", type=["csv"])
-goal = st.text_area("Agent goal", value=DEFAULT_GOAL, height=90)
+goal = st.text_area("Agent goal", height=90, key="goal_text")
 
 df = read_input_data(uploaded)
+preview_profile = perceive_dataset(df)
+
+if goal_is_ambiguous(goal):
+    suggestions = suggest_clarifications(preview_profile)
+    st.info("The goal is broad. Choose a suggested focus or run the agent with the first suggestion as planning context.")
+    cols = st.columns(len(suggestions))
+    for index, suggestion in enumerate(suggestions):
+        with cols[index]:
+            if st.button(suggestion, key=f"suggestion_{index}"):
+                st.session_state.goal_text = suggestion
+                st.rerun()
+
 st.subheader("Dataset Preview")
-st.dataframe(df.head(8), use_container_width=True)
+st.dataframe(df.head(8), width="stretch")
 
 if st.button("Run Agent", type="primary"):
     agent = DataAnalysisAgent(OpenAICompatibleClient(config))
@@ -81,12 +97,15 @@ if run:
         st.json(run.profile.to_dict())
 
     with trace_tabs[1]:
+        if run.clarification["ambiguous"]:
+            st.info("Clarification suggestions were generated because the goal was broad.")
+            st.write(run.clarification["suggestions"])
         st.write(f"Plan source: **{run.plan.source}**")
         if run.plan.error:
             st.warning(f"LLM planner fallback reason: {run.plan.error}")
         st.dataframe(
             pd.DataFrame([step.to_dict() for step in run.plan.steps]),
-            use_container_width=True,
+            width="stretch",
         )
         if run.plan.raw_response:
             with st.expander("Raw LLM planner response"):
@@ -108,7 +127,7 @@ if run:
         with st.expander(result.title, expanded=True):
             st.write(result.observation)
             if result.table is not None:
-                st.dataframe(result.table, use_container_width=True)
+                st.dataframe(result.table, width="stretch")
             if result.figure is not None:
                 st.pyplot(result.figure)
 
@@ -130,4 +149,3 @@ if run:
                 "not_useful",
             )
             st.rerun()
-

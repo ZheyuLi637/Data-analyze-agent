@@ -22,6 +22,7 @@ This maps to course concepts: environment, observation/state, action, policy, to
 ## Features
 
 - Streamlit interface for upload, goal input, trace inspection, charts, tables, and feedback.
+- Ambiguous goal detection with dataset-specific clarification suggestions.
 - OpenAI-compatible LLM configuration through environment variables.
 - Deterministic fallback planner when no API key is available or the LLM fails.
 - Safe predefined analysis tools; the LLM never executes arbitrary code.
@@ -43,6 +44,8 @@ streamlit run app.py
 ```
 
 The app works without an LLM key by using the fallback planner.
+
+If the goal is broad, for example `analyze this data`, the app suggests clearer analysis goals based on the observed dataset columns. The user can click one suggestion, or run the agent directly; in that case the first suggestion is added as planning context and shown in the trace.
 
 ## Optional LLM Provider Configuration
 

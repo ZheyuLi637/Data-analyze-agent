@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from agent.clarification import clarification_context
 from agent.llm_client import OpenAICompatibleClient, compact_json
 from agent.memory import initial_tool_scores
 from agent.perception import DatasetProfile, perceive_dataset
@@ -19,6 +20,7 @@ class AgentRun:
     tool_results: list[ToolResult]
     final_answer: str
     trace: list[dict]
+    clarification: dict
 
     @property
     def tools_used(self) -> list[str]:
@@ -41,7 +43,10 @@ class DataAnalysisAgent:
         profile = perceive_dataset(df)
         trace.append({"stage": "perceive", "content": profile.to_dict()})
 
-        plan = plan_analysis(goal, profile, scores, self.llm_client)
+        clarification = clarification_context(goal, profile)
+        trace.append({"stage": "clarify", "content": clarification})
+
+        plan = plan_analysis(clarification["planning_goal"], profile, scores, self.llm_client)
         trace.append({"stage": "plan", "content": plan.to_dict()})
 
         tool_results: list[ToolResult] = []
@@ -68,6 +73,7 @@ class DataAnalysisAgent:
             tool_results=tool_results,
             final_answer=final_answer,
             trace=trace,
+            clarification=clarification,
         )
 
     def _synthesize(
@@ -129,4 +135,3 @@ def _fallback_summary(
         "Next step: review the generated tables and charts, then provide feedback so the agent can adjust tool priorities."
     )
     return "\n".join(lines)
-
