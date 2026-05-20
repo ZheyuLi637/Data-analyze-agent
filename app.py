@@ -90,6 +90,12 @@ if st.button("Run Agent", type="primary"):
 
 run = st.session_state.last_run
 if run:
+    clarification = getattr(
+        run,
+        "clarification",
+        {"ambiguous": False, "suggestions": [], "planning_goal": run.goal},
+    )
+
     st.subheader("Agent Trace")
     trace_tabs = st.tabs(["Perceive", "Plan", "Act", "Observe", "Final Answer"])
 
@@ -97,9 +103,9 @@ if run:
         st.json(run.profile.to_dict())
 
     with trace_tabs[1]:
-        if run.clarification["ambiguous"]:
+        if clarification["ambiguous"]:
             st.info("Clarification suggestions were generated because the goal was broad.")
-            st.write(run.clarification["suggestions"])
+            st.write(clarification["suggestions"])
         st.write(f"Plan source: **{run.plan.source}**")
         if run.plan.error:
             st.warning(f"LLM planner fallback reason: {run.plan.error}")
