@@ -51,17 +51,25 @@ If the goal is broad, for example `analyze this data`, the app suggests clearer 
 
 The app uses an OpenAI-compatible `/chat/completions` interface.
 
+You can either export variables in the terminal or create a local `.env` file. `.env` is ignored by Git so API keys are not committed.
+
 ```bash
 export LLM_ENABLED=true
 export LLM_API_KEY="your-api-key"
-export LLM_BASE_URL="https://api.deepseek.com/v1"
-export LLM_MODEL="deepseek-chat"
+export LLM_BASE_URL="https://openrouter.ai/api/v1"
+export LLM_MODEL="openrouter/owl-alpha"
 streamlit run app.py
 ```
 
 Example provider settings:
 
 ```bash
+# OpenRouter
+export LLM_BASE_URL="https://openrouter.ai/api/v1"
+export LLM_MODEL="openrouter/owl-alpha"
+export LLM_APP_NAME="COMPSCI 767 Data Analysis Agent"
+export LLM_SITE_URL="http://localhost:8502"
+
 # DeepSeek
 export LLM_BASE_URL="https://api.deepseek.com/v1"
 export LLM_MODEL="deepseek-chat"
