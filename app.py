@@ -30,6 +30,8 @@ def ensure_state() -> None:
         st.session_state.last_run = None
     if "goal_text" not in st.session_state:
         st.session_state.goal_text = DEFAULT_GOAL
+    if "pending_goal_text" in st.session_state:
+        st.session_state.goal_text = st.session_state.pop("pending_goal_text")
 
 
 def read_input_data(uploaded_file) -> pd.DataFrame:
@@ -85,7 +87,7 @@ if preview_clarification["ambiguous"]:
     for index, suggestion in enumerate(suggestions):
         with cols[index]:
             if st.button(suggestion, key=f"suggestion_{index}"):
-                st.session_state.goal_text = suggestion
+                st.session_state.pending_goal_text = suggestion
                 st.rerun()
 
 st.subheader("Dataset Preview")
