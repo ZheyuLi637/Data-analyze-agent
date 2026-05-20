@@ -142,9 +142,9 @@ class DataAnalysisAgent:
         if self.llm_client.ready:
             try:
                 return self._llm_synthesis(goal, profile, plan, observations)
-            except Exception as exc:
-                return _fallback_summary(goal, profile, observations, f"LLM synthesis failed: {exc}")
-        return _fallback_summary(goal, profile, observations)
+            except Exception:
+                return _grounded_summary(goal, profile, plan, tool_results, llm_unavailable=True)
+        return _grounded_summary(goal, profile, plan, tool_results)
 
     def _llm_synthesis(
         self,
@@ -175,23 +175,107 @@ class DataAnalysisAgent:
         )
 
 
-def _fallback_summary(
+def _grounded_summary(
+    goal: str,
+    profile: DatasetProfile,
+    plan: PlanResult,
+    tool_results: list[ToolResult],
+    llm_unavailable: bool = False,
+) -> str:
+    observations = [result.observation for result in tool_results]
+    findings = _key_findings(observations)
+    if not findings:
+        findings = ["The agent did not find enough grounded tool output to make an analytical claim."]
+
+    action_reason = _action_reason(plan, tool_results)
+    next_step = _next_step(goal, profile, observations)
+    caveats = _caveats(goal, profile, observations, llm_unavailable)
+
+    lines = [
+        f"Summary: I analyzed {profile.row_count} rows and {profile.column_count} columns for this goal: {goal}",
+        "",
+        "Key findings:",
+    ]
+    lines.extend(f"- {finding}" for finding in findings[:4])
+    lines.extend(["", f"Action reasoning: {action_reason}", f"Next step: {next_step}"])
+    if caveats:
+        lines.extend(["", "Caveat: " + " ".join(caveats)])
+    return "\n".join(lines)
+
+
+def _key_findings(observations: list[str]) -> list[str]:
+    findings: list[str] = []
+    for observation in observations:
+        if observation.startswith("Generated summary statistics"):
+            findings.append(observation.replace("Generated", "The agent generated"))
+        elif observation.startswith("No numeric columns"):
+            findings.append("The dataset is text/categorical only, so numeric statistics and correlations were skipped.")
+        elif observation.startswith("Found "):
+            findings.append(observation + " Treat this as a data-quality risk before trusting downstream patterns.")
+        elif observation.startswith("Computed correlations"):
+            findings.append(observation)
+        elif observation.startswith("Compared "):
+            findings.append(observation)
+        elif observation.startswith("Analyzed "):
+            findings.append(observation)
+        elif observation.startswith("Generated a distribution chart") or observation.startswith("Generated a count chart"):
+            findings.append(observation + " Use the chart as visual support for the table-based findings.")
+        elif observation.startswith("Skipped "):
+            findings.append(observation)
+    return findings
+
+
+def _action_reason(plan: PlanResult, tool_results: list[ToolResult]) -> str:
+    tools = [result.name for result in tool_results]
+    if not tools:
+        return "No analysis tools were executed because the agent could not safely proceed."
+
+    reasons = {
+        "dataset_summary": "establish baseline statistics",
+        "missing_value_check": "check reliability before interpretation",
+        "correlation_analysis": "measure numeric relationships",
+        "group_comparison": "compare performance across categories",
+        "trend_analysis": "test time-based movement",
+        "chart_generation": "provide visual support",
+    }
+    selected = [reasons.get(tool, tool.replace("_", " ")) for tool in tools]
+    source = "LLM planner" if plan.source == "llm" else "validated fallback policy"
+    return f"The {source} selected these actions to " + ", ".join(selected) + "."
+
+
+def _next_step(goal: str, profile: DatasetProfile, observations: list[str]) -> str:
+    lowered = goal.lower()
+    if any("Found " in observation and "missing values" in observation for observation in observations):
+        return "Clean or explain the missing values, then rerun the same analysis to check whether the findings change."
+    if any(token in lowered for token in ("trend", "over time", "date", "time")) and not profile.date_columns:
+        return "Clean the date column into a consistent datetime format before making any trend claim."
+    if any("Top pairs:" in observation for observation in observations):
+        return "Inspect the strongest numeric relationships in the correlation table and validate whether they match domain expectations."
+    if any("top average groups" in observation for observation in observations):
+        return "Review the highest and lowest groups in the group comparison table and investigate what drives the gap."
+    if not profile.numeric_columns:
+        return "Use a text-specific method such as sentiment or topic analysis if deeper feedback interpretation is required."
+    return "Review the generated table and chart, then give feedback so the agent can prioritize better tools in the next run."
+
+
+def _caveats(
     goal: str,
     profile: DatasetProfile,
     observations: list[str],
-    note: str | None = None,
-) -> str:
-    lines = [
-        f"Goal: {goal}",
-        f"Observed dataset state: {profile.row_count} rows, {profile.column_count} columns.",
-        "Actions completed: " + "; ".join(observations),
-    ]
-    if note:
-        lines.append(note)
-    lines.append(
-        "Next step: review the generated tables and charts, then provide feedback so the agent can adjust tool priorities."
-    )
-    return "\n".join(lines)
+    llm_unavailable: bool,
+) -> list[str]:
+    caveats: list[str] = []
+    if llm_unavailable:
+        caveats.append("LLM explanation was unavailable, so this response uses the local grounded summarizer.")
+    if any(count > 0 for count in profile.missing_values.values()):
+        caveats.append("Missing values may affect reliability.")
+    if any(token in goal.lower() for token in ("trend", "over time", "date", "time")) and not profile.date_columns:
+        caveats.append("The date column was not reliably detected, so trend analysis should wait until date cleanup.")
+    if not profile.numeric_columns:
+        caveats.append("No numeric columns were detected.")
+    if any(observation.startswith("Skipped ") for observation in observations):
+        caveats.append("At least one requested analysis was skipped because the dataset did not support it.")
+    return caveats
 
 
 def _synthesis_constraints(goal: str, profile: DatasetProfile) -> list[str]:

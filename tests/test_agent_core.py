@@ -82,6 +82,80 @@ class AgentCoreTest(unittest.TestCase):
         self.assertNotEqual(run.plan.source, "needs_clarification")
         self.assertGreater(len(run.tool_results), 0)
 
+    def test_llm_failure_uses_polished_local_summary(self):
+        df = pd.DataFrame({"region": ["North", "South"], "sales": [100, 120]})
+
+        run = DataAnalysisAgent(FailingClient()).run(
+            df,
+            "Compare average sales across region",
+            initial_tool_scores(),
+        )
+
+        self.assertIn("Summary:", run.final_answer)
+        self.assertIn("Key findings:", run.final_answer)
+        self.assertIn("LLM explanation was unavailable", run.final_answer)
+        self.assertNotIn("Client Error", run.final_answer)
+        self.assertNotIn("Traceback", run.final_answer)
+        self.assertNotIn("LLM synthesis failed", run.final_answer)
+
+    def test_trend_prompt_produces_trend_focused_summary(self):
+        df = pd.DataFrame(
+            {
+                "date": ["2026-01-01", "2026-01-02", "2026-01-03"],
+                "sales": [100, 120, 140],
+            }
+        )
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "Analyze sales trends over time", initial_tool_scores())
+
+        self.assertIn("Analyzed sales over date", run.final_answer)
+        self.assertIn("test time-based movement", run.final_answer)
+
+    def test_group_prompt_mentions_strongest_group(self):
+        df = pd.DataFrame({"region": ["North", "South", "North"], "sales": [100, 70, 120]})
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "Compare sales by region", initial_tool_scores())
+
+        self.assertIn("top average groups", run.final_answer)
+        self.assertIn("region: North", run.final_answer)
+
+    def test_missing_values_summary_mentions_quality_risk(self):
+        df = pd.DataFrame({"sales": [100, None], "profit": [20, None]})
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "Audit this dataset for data quality issues", initial_tool_scores())
+
+        self.assertIn("data-quality risk", run.final_answer)
+        self.assertIn("Missing values may affect reliability", run.final_answer)
+
+    def test_messy_date_summary_warns_before_trend_claim(self):
+        df = pd.DataFrame({"date": ["bad", "unknown"], "sales": [100, 120]})
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "Analyze sales trends over time", initial_tool_scores())
+
+        self.assertIn("Clean the date column", run.final_answer)
+        self.assertIn("date column was not reliably detected", run.final_answer)
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FailingClient:
+    @property
+    def ready(self):
+        return True
+
+    def chat(self, messages, temperature=0.2):
+        raise RuntimeError("429 Client Error: Too Many Requests")
