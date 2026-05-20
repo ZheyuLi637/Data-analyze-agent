@@ -22,6 +22,7 @@ This maps to course concepts: environment, observation/state, action, policy, to
 ## Features
 
 - Streamlit interface for upload, goal input, trace inspection, charts, tables, and feedback.
+- Need-specific visuals: correlation heatmap plus scatter, side-by-side group rankings, multi-metric trends with rolling average, and distribution plus boxplot views.
 - Ambiguous goal detection with dataset-specific clarification suggestions.
 - OpenAI-compatible LLM configuration through environment variables.
 - Deterministic fallback planner when no API key is available or the LLM fails.

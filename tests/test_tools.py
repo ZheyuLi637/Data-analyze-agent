@@ -30,6 +30,8 @@ class ToolsTest(unittest.TestCase):
         self.assertIsNotNone(result.figure)
         self.assertIsNotNone(result.table)
         self.assertIn("Top pairs", result.observation)
+        self.assertIn("heatmap", result.observation)
+        self.assertGreaterEqual(len(result.figure.axes), 2)
 
     def test_group_comparison_includes_multiple_categorical_columns(self):
         result = execute_tool("group_comparison", self.df, self.profile)
@@ -37,6 +39,22 @@ class ToolsTest(unittest.TestCase):
         self.assertIsNotNone(result.table)
         self.assertIn("group_column", result.table.columns)
         self.assertIn("region", set(result.table["group_column"]))
+        self.assertIn("side-by-side bar charts", result.observation)
+        self.assertGreaterEqual(len(result.figure.axes), 1)
+
+    def test_trend_analysis_uses_multi_metric_visual(self):
+        result = execute_tool("trend_analysis", self.df, self.profile)
+
+        self.assertIsNotNone(result.figure)
+        self.assertIn("multi-metric trend", result.observation)
+        self.assertGreaterEqual(len(result.figure.axes[0].lines), 2)
+
+    def test_chart_generation_adds_distribution_and_boxplot(self):
+        result = execute_tool("chart_generation", self.df, self.profile)
+
+        self.assertIsNotNone(result.figure)
+        self.assertIn("distribution and boxplot", result.observation)
+        self.assertEqual(len(result.figure.axes), 2)
 
     def test_unknown_tool_raises(self):
         with self.assertRaises(ValueError):

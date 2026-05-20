@@ -72,17 +72,33 @@ def correlation_analysis(df: pd.DataFrame, profile: DatasetProfile) -> ToolResul
         )
 
     corr = df[numeric].corr(numeric_only=True).round(2)
-    fig, ax = plt.subplots(figsize=(6, 4))
-    image = ax.imshow(corr, cmap="coolwarm", vmin=-1, vmax=1)
-    ax.set_xticks(range(len(corr.columns)), corr.columns, rotation=45, ha="right")
-    ax.set_yticks(range(len(corr.index)), corr.index)
-    fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+    top_pairs = _top_correlations(corr)
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+    heatmap_ax, scatter_ax = axes
+    image = heatmap_ax.imshow(corr, cmap="coolwarm", vmin=-1, vmax=1)
+    heatmap_ax.set_title("Correlation heatmap")
+    heatmap_ax.set_xticks(range(len(corr.columns)), corr.columns, rotation=45, ha="right")
+    heatmap_ax.set_yticks(range(len(corr.index)), corr.index)
+    for row_index, row_name in enumerate(corr.index):
+        for column_index, column_name in enumerate(corr.columns):
+            heatmap_ax.text(column_index, row_index, corr.loc[row_name, column_name], ha="center", va="center", fontsize=8)
+    fig.colorbar(image, ax=heatmap_ax, fraction=0.046, pad=0.04)
+
+    pair = _parse_pair(top_pairs[0])
+    if pair:
+        left, right = pair
+        scatter_ax.scatter(df[left], df[right], color="#3659a8", alpha=0.75)
+        scatter_ax.set_title(f"Strongest pair: {left} vs {right}")
+        scatter_ax.set_xlabel(left)
+        scatter_ax.set_ylabel(right)
+    else:
+        scatter_ax.text(0.5, 0.5, "No pair available", ha="center", va="center")
+        scatter_ax.set_axis_off()
     fig.tight_layout()
 
-    top_pairs = _top_correlations(corr)
     observation = (
         f"Computed correlations across {len(numeric)} numeric columns. "
-        f"Top pairs: {'; '.join(top_pairs)}."
+        f"Top pairs: {'; '.join(top_pairs)}. Visualized a heatmap and strongest-pair scatter plot."
     )
     return ToolResult(
         "correlation_analysis",
@@ -120,16 +136,20 @@ def group_comparison(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
             top_summaries.append(f"{category}: {part.iloc[0]['group_value']}")
 
     grouped = pd.concat(grouped_parts, ignore_index=True)
-    fig, ax = plt.subplots(figsize=(6, 4))
-    first_category = categories[0]
-    first_group = grouped[grouped["group_column"] == first_category]
-    ax.bar(first_group["group_value"].astype(str), first_group["mean"], color="#2f6f73")
-    ax.set_xlabel(first_category)
-    ax.set_ylabel(f"Mean {metric}")
-    ax.tick_params(axis="x", rotation=30)
+    fig, axes = plt.subplots(1, len(categories), figsize=(5.5 * len(categories), 4.2))
+    if len(categories) == 1:
+        axes = [axes]
+    for ax, category in zip(axes, categories):
+        part = grouped[grouped["group_column"] == category].sort_values("mean", ascending=True)
+        ax.barh(part["group_value"].astype(str), part["mean"], color="#2f6f73")
+        ax.set_title(f"Mean {metric} by {category}")
+        ax.set_xlabel(f"Mean {metric}")
     fig.tight_layout()
 
-    observation = f"Compared {metric} by {', '.join(categories)}; top average groups: {'; '.join(top_summaries)}."
+    observation = (
+        f"Compared {metric} by {', '.join(categories)}; top average groups: {'; '.join(top_summaries)}. "
+        "Visualized category-level rankings with side-by-side bar charts."
+    )
     return ToolResult("group_comparison", "Group Comparison", observation, table=grouped, figure=fig)
 
 
@@ -142,41 +162,66 @@ def trend_analysis(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
         )
 
     date_column = profile.date_columns[0]
-    metric = profile.numeric_columns[0]
-    work = df[[date_column, metric]].copy()
+    metrics = profile.numeric_columns[:2]
+    metric = metrics[0]
+    work = df[[date_column] + metrics].copy()
     work[date_column] = pd.to_datetime(work[date_column], errors="coerce")
     work = work.dropna(subset=[date_column])
-    trend = work.sort_values(date_column).groupby(date_column, as_index=False)[metric].sum()
+    trend = work.sort_values(date_column).groupby(date_column, as_index=False)[metrics].sum()
 
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(trend[date_column], trend[metric], marker="o", color="#3659a8")
+    fig, ax = plt.subplots(figsize=(8, 4.4))
+    colors = ["#3659a8", "#b4554b"]
+    for index, current_metric in enumerate(metrics):
+        ax.plot(trend[date_column], trend[current_metric], marker="o", color=colors[index % len(colors)], label=current_metric)
+    if len(trend) >= 3:
+        rolling = trend[metric].rolling(window=3, min_periods=1).mean()
+        ax.plot(trend[date_column], rolling, linestyle="--", color="#222222", label=f"{metric} rolling avg")
+    ax.legend()
+    ax.set_title("Trend with comparison metric")
     ax.set_xlabel(date_column)
-    ax.set_ylabel(metric)
+    ax.set_ylabel("Value")
     ax.tick_params(axis="x", rotation=30)
     fig.tight_layout()
 
     direction = "increased" if len(trend) > 1 and trend[metric].iloc[-1] >= trend[metric].iloc[0] else "decreased"
-    observation = f"Analyzed {metric} over {date_column}; the series {direction} from first to last point."
+    observation = (
+        f"Analyzed {', '.join(metrics)} over {date_column}; {metric} {direction} from first to last point. "
+        "Visualized a multi-metric trend with rolling average when enough points were available."
+    )
     return ToolResult("trend_analysis", "Trend Analysis", observation, table=trend, figure=fig)
 
 
 def chart_generation(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
-    fig, ax = plt.subplots(figsize=(6, 4))
     if profile.numeric_columns:
         metric = profile.numeric_columns[0]
-        ax.hist(df[metric].dropna(), bins=8, color="#7d5a50", edgecolor="white")
-        ax.set_xlabel(metric)
-        ax.set_ylabel("Count")
-        observation = f"Generated a distribution chart for {metric}."
+        values = df[metric].dropna()
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+        hist_ax, box_ax = axes
+        hist_ax.hist(values, bins=8, color="#7d5a50", edgecolor="white")
+        hist_ax.set_title(f"{metric} distribution")
+        hist_ax.set_xlabel(metric)
+        hist_ax.set_ylabel("Count")
+        box_ax.boxplot(values, orientation="vertical", patch_artist=True, boxprops={"facecolor": "#d8b4a6"})
+        box_ax.set_title(f"{metric} spread")
+        box_ax.set_ylabel(metric)
+        observation = f"Generated distribution and boxplot views for {metric}."
     elif profile.categorical_columns:
         category = profile.categorical_columns[0]
         counts = df[category].value_counts().head(10)
-        ax.bar(counts.index.astype(str), counts.values, color="#7d5a50")
-        ax.set_xlabel(category)
-        ax.set_ylabel("Count")
-        ax.tick_params(axis="x", rotation=30)
-        observation = f"Generated a count chart for {category}."
+        shares = (counts / counts.sum() * 100).round(1)
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+        count_ax, share_ax = axes
+        count_ax.bar(counts.index.astype(str), counts.values, color="#7d5a50")
+        count_ax.set_title(f"{category} counts")
+        count_ax.set_xlabel(category)
+        count_ax.set_ylabel("Count")
+        count_ax.tick_params(axis="x", rotation=30)
+        share_ax.barh(shares.index.astype(str), shares.values, color="#5b7f95")
+        share_ax.set_title(f"{category} share")
+        share_ax.set_xlabel("Percent")
+        observation = f"Generated count and share charts for {category}."
     else:
+        fig, ax = plt.subplots(figsize=(6, 4))
         ax.text(0.5, 0.5, "No plottable columns", ha="center", va="center")
         observation = "No numeric or categorical columns were available for chart generation."
     fig.tight_layout()
@@ -193,3 +238,13 @@ def _top_correlations(corr: pd.DataFrame) -> list[str]:
                 pairs.append((abs(float(value)), f"{left} vs {right} ({float(value):.2f})"))
     pairs.sort(reverse=True, key=lambda item: item[0])
     return [pair for _, pair in pairs[:3]] or ["n/a"]
+
+
+def _parse_pair(pair_text: str) -> tuple[str, str] | None:
+    if " vs " not in pair_text:
+        return None
+    left, rest = pair_text.split(" vs ", 1)
+    right = rest.split(" (", 1)[0]
+    if not left or not right:
+        return None
+    return left, right
