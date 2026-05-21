@@ -43,9 +43,10 @@ class DataAnalysisAgent:
     ) -> AgentRun:
         scores = tool_scores or initial_tool_scores()
         trace: list[dict] = [{"stage": "goal", "content": goal}]
-        effective_goal = _goal_with_memory(goal, prior_context or [])
+        memory_context = _memory_context(prior_context or [])
+        effective_goal = _goal_with_memory(goal, memory_context)
         if effective_goal != goal:
-            trace.append({"stage": "memory", "content": effective_goal})
+            trace.append({"stage": "memory", "content": memory_context})
 
         profile = perceive_dataset(df)
         trace.append({"stage": "perceive", "content": profile.to_dict()})
@@ -123,7 +124,7 @@ class DataAnalysisAgent:
                 }
             )
 
-        final_answer = self._synthesize(goal, profile, plan, tool_results)
+        final_answer = self._synthesize(clarification["planning_goal"], profile, plan, tool_results)
         trace.append({"stage": "observe", "content": [result.observation for result in tool_results]})
         trace.append({"stage": "final_answer", "content": final_answer})
 
@@ -225,6 +226,14 @@ def _key_findings(observations: list[str]) -> list[str]:
             findings.append(observation)
         elif observation.startswith("Analyzed "):
             findings.append(observation)
+        elif observation.startswith("Modeled recurring topics"):
+            findings.append(observation)
+        elif observation.startswith("Ran statistical testing"):
+            findings.append(observation)
+        elif observation.startswith("Built a simple predictive model"):
+            findings.append(observation)
+        elif observation.startswith("Audited causal risk"):
+            findings.append(observation)
         elif observation.startswith("Checked date quality"):
             findings.append(observation)
         elif observation.startswith("Generated distribution") or observation.startswith("Generated count"):
@@ -247,6 +256,10 @@ def _action_reason(plan: PlanResult, tool_results: list[ToolResult]) -> str:
         "trend_analysis": "test time-based movement",
         "date_quality_check": "verify date parsing quality",
         "text_analysis": "extract text themes and sentiment",
+        "topic_modeling": "group recurring text topics",
+        "statistical_testing": "check whether patterns have statistical support",
+        "predictive_modeling": "fit a simple baseline forecast",
+        "causal_risk_analysis": "separate causal hypotheses from observational evidence",
         "chart_generation": "provide visual support",
     }
     selected = [reasons.get(tool, tool.replace("_", " ")) for tool in tools]
@@ -264,6 +277,14 @@ def _next_step(goal: str, profile: DatasetProfile, observations: list[str]) -> s
         return "Standardize invalid date values, then rerun trend analysis to compare cleaned and original results."
     if any(observation.startswith("Analyzed text column") for observation in observations):
         return "Review the top keywords and sentiment split, then group the original text rows into recurring issue themes."
+    if any(observation.startswith("Modeled recurring topics") for observation in observations):
+        return "Inspect the example rows behind each topic and decide which theme should drive the next product or operations action."
+    if any(observation.startswith("Ran statistical testing") for observation in observations):
+        return "Validate the tested pattern with more rows or a holdout slice before using it as decision evidence."
+    if any(observation.startswith("Built a simple predictive model") for observation in observations):
+        return "Compare this baseline prediction with a holdout period before relying on it for planning."
+    if any(observation.startswith("Audited causal risk") for observation in observations):
+        return "Define a controlled comparison or add confounder columns before making a causal claim."
     if any("Top pairs:" in observation for observation in observations):
         return "Inspect the strongest numeric relationships in the correlation table and validate whether they match domain expectations."
     if any("top average groups" in observation for observation in observations):
@@ -295,41 +316,52 @@ def _caveats(
         caveats.append(f"Date cleanup is recommended for: {', '.join(weak_date_columns)}.")
     if not profile.numeric_columns:
         caveats.append("No numeric columns were detected.")
+    if any(observation.startswith("Audited causal risk") for observation in observations):
+        caveats.append("Causal findings are hypothesis-generating only because the data is observational.")
+    if any(observation.startswith("Built a simple predictive model") for observation in observations):
+        caveats.append("The prediction is a simple local baseline, not a validated production forecast.")
+    if any(observation.startswith("Ran statistical testing") and "approximate p-value" in observation for observation in observations):
+        caveats.append("Statistical p-values use a lightweight normal approximation because the prototype avoids heavy dependencies.")
     if any(observation.startswith("Skipped ") for observation in observations):
         caveats.append("At least one requested analysis was skipped because the dataset did not support it.")
     return caveats
 
 
-def _goal_with_memory(goal: str, prior_context: list[dict]) -> str:
-    if not prior_context or not _looks_like_followup(goal):
-        return goal
+def _memory_context(prior_context: list[dict]) -> dict:
+    if not prior_context:
+        return {}
     last = prior_context[-1]
-    previous_goal = str(last.get("goal", ""))[:180]
-    previous_answer = str(last.get("final_answer", ""))[:500].replace("\n", " ")
+    return {
+        "previous_goal": str(last.get("goal", ""))[:220],
+        "previous_answer": str(last.get("final_answer", ""))[:700].replace("\n", " "),
+        "previous_tools": list(last.get("tools_used", last.get("tools", [])))[:8],
+    }
+
+
+def _goal_with_memory(goal: str, memory_context: dict) -> str:
+    if not memory_context or not _looks_like_followup(goal):
+        return goal
+    previous_goal = memory_context.get("previous_goal", "")
+    previous_answer = memory_context.get("previous_answer", "")
+    previous_tools = ", ".join(memory_context.get("previous_tools", [])) or "none"
     return (
         f"{goal}\n"
         f"Follow-up context from previous agent run: previous goal was '{previous_goal}'. "
-        f"Previous answer summary: {previous_answer}"
+        f"Previous tools used: {previous_tools}. Previous answer summary: {previous_answer}. "
+        "Resolve pronouns such as it, that, same, those, previous, and continue against this context before planning."
     )
 
 
 def _looks_like_followup(goal: str) -> bool:
     lowered = goal.strip().lower()
-    return any(
-        token in lowered
-        for token in (
-            "continue",
-            "follow up",
-            "what about",
-            "also",
-            "next",
-            "继续",
-            "接着",
-            "再分析",
-            "那",
-            "还有",
-        )
-    )
+    phrase_tokens = ("follow up", "what about", "compare that")
+    word_tokens = ("continue", "also", "next", "same", "previous", "again", "it", "that")
+    chinese_tokens = ("继续", "接着", "再分析", "那", "还有", "一样", "上一个", "刚才")
+    if any(token in lowered for token in phrase_tokens + chinese_tokens):
+        return True
+    import re
+
+    return any(re.search(rf"\b{re.escape(token)}\b", lowered) for token in word_tokens)
 
 
 def _synthesis_constraints(goal: str, profile: DatasetProfile) -> list[str]:
@@ -343,4 +375,8 @@ def _synthesis_constraints(goal: str, profile: DatasetProfile) -> list[str]:
         constraints.append("No numeric columns were detected. Do not claim numeric statistics or correlations.")
     if not profile.categorical_columns:
         constraints.append("No categorical columns were detected. Do not claim group comparison results.")
+    if any(token in lowered for token in ("causal", "cause", "impact", "effect", "driver")):
+        constraints.append("This prototype can audit causal risk but must not claim causality from observational CSV data alone.")
+    if any(token in lowered for token in ("predict", "forecast", "projection", "future")):
+        constraints.append("Prediction output is a simple local baseline and needs holdout validation before operational use.")
     return constraints

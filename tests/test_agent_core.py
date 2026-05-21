@@ -163,6 +163,46 @@ class AgentCoreTest(unittest.TestCase):
         self.assertIn("memory", [item["stage"] for item in run.trace])
         self.assertGreater(len(run.tool_results), 0)
 
+    def test_followup_goal_keeps_previous_tools_in_memory_trace(self):
+        df = pd.DataFrame({"region": ["North", "South"], "sales": [100, 120], "profit": [20, 30]})
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(
+            df,
+            "compare that again with profit",
+            initial_tool_scores(),
+            prior_context=[
+                {
+                    "goal": "Compare sales by region",
+                    "final_answer": "North and South were compared.",
+                    "tools_used": ["group_comparison", "chart_generation"],
+                }
+            ],
+        )
+
+        memory_items = [item for item in run.trace if item["stage"] == "memory"]
+        self.assertEqual(memory_items[0]["content"]["previous_tools"], ["group_comparison", "chart_generation"])
+        self.assertIn("group_comparison", run.tools_used)
+
+    def test_advanced_tools_are_summarized_without_raw_template(self):
+        df = pd.DataFrame(
+            {
+                "week": [1, 2, 3, 4, 5],
+                "sales": [100, 120, 140, 155, 170],
+                "profit": [20, 24, 28, 30, 35],
+            }
+        )
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "Forecast future sales", initial_tool_scores())
+
+        self.assertIn("Built a simple predictive model", run.final_answer)
+        self.assertIn("simple local baseline", run.final_answer)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -107,6 +107,31 @@ class PlannerTest(unittest.TestCase):
         tools = [step.tool_name for step in fallback_plan(profile, goal="Analyze feedback sentiment and themes")]
 
         self.assertIn("text_analysis", tools)
+        self.assertIn("topic_modeling", tools)
+
+    def test_fallback_uses_prediction_focus(self):
+        df = pd.DataFrame({"week": [1, 2, 3, 4], "sales": [100, 110, 130, 150]})
+        profile = perceive_dataset(df)
+
+        tools = [step.tool_name for step in fallback_plan(profile, goal="Forecast future sales")]
+
+        self.assertIn("predictive_modeling", tools)
+
+    def test_fallback_uses_statistical_focus(self):
+        df = pd.DataFrame({"region": ["North", "North", "South"], "sales": [100, 120, 80]})
+        profile = perceive_dataset(df)
+
+        tools = [step.tool_name for step in fallback_plan(profile, goal="Test if sales difference is significant by region")]
+
+        self.assertIn("statistical_testing", tools)
+
+    def test_fallback_uses_causal_focus(self):
+        df = pd.DataFrame({"campaign": ["A", "A", "B"], "sales": [100, 120, 80], "discount": [5, 6, 10]})
+        profile = perceive_dataset(df)
+
+        tools = [step.tool_name for step in fallback_plan(profile, goal="Did campaign cause higher sales?")]
+
+        self.assertIn("causal_risk_analysis", tools)
 
     def test_fallback_checks_date_quality_for_messy_dates(self):
         df = pd.DataFrame({"date": ["2026-01-01", "not-a-date", "unknown"], "sales": [100, 120, 90]})

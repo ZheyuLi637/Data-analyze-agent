@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import time
+import os
 from dataclasses import dataclass
 from pathlib import Path
+
+os.environ.setdefault("MPLCONFIGDIR", "/private/tmp/compsci767-matplotlib")
 
 import matplotlib.pyplot as plt
 
@@ -129,6 +132,31 @@ SCENARIOS = [
         csv_path="data/edge_large_sales.csv",
         goal="Analyze sales and profit trends over time.",
         required_tools={"trend_analysis"},
+    ),
+    EvaluationScenario(
+        name="Topic modeling",
+        csv_path="data/edge_text_only.csv",
+        goal="Find recurring feedback topics and themes.",
+        required_tools={"topic_modeling"},
+        forbidden_tools={"correlation_analysis", "trend_analysis"},
+    ),
+    EvaluationScenario(
+        name="Statistical testing",
+        csv_path="data/sample_sales.csv",
+        goal="Test whether sales differences by region are significant.",
+        required_tools={"statistical_testing"},
+    ),
+    EvaluationScenario(
+        name="Predictive modeling",
+        csv_path="data/edge_large_sales.csv",
+        goal="Forecast future sales with a simple predictive model.",
+        required_tools={"predictive_modeling"},
+    ),
+    EvaluationScenario(
+        name="Causal guardrail",
+        csv_path="data/sample_sales.csv",
+        goal="Did discount cause higher profit?",
+        required_tools={"causal_risk_analysis"},
     ),
 ]
 

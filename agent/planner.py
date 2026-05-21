@@ -16,6 +16,10 @@ ALLOWED_TOOL_DESCRIPTIONS = {
     "trend_analysis": "Analyze a numeric metric over a date-like field.",
     "date_quality_check": "Check whether date-like columns can be parsed reliably.",
     "text_analysis": "Extract lightweight keywords and sentiment from substantial text columns.",
+    "topic_modeling": "Group repeated text terms into recurring themes with example rows.",
+    "statistical_testing": "Run bounded statistical tests such as correlation significance or group mean difference checks.",
+    "predictive_modeling": "Fit a simple local baseline model for numeric prediction or trend forecasting.",
+    "causal_risk_analysis": "Audit observational associations and list causal caveats/confounders without claiming causality.",
     "chart_generation": "Create a simple chart for the most useful numeric or categorical field.",
 }
 
@@ -106,6 +110,16 @@ def filter_applicable_steps(steps: list[PlanStep], profile: DatasetProfile) -> l
             continue
         if step.tool_name == "text_analysis" and not profile.categorical_columns:
             continue
+        if step.tool_name == "topic_modeling" and not profile.categorical_columns:
+            continue
+        if step.tool_name == "statistical_testing" and not (
+            len(profile.numeric_columns) >= 2 or (profile.categorical_columns and profile.numeric_columns)
+        ):
+            continue
+        if step.tool_name == "predictive_modeling" and not profile.numeric_columns:
+            continue
+        if step.tool_name == "causal_risk_analysis" and not profile.numeric_columns:
+            continue
         if step.tool_name == "missing_value_check" and not any(count > 0 for count in profile.missing_values.values()):
             continue
         applicable.append(step)
@@ -186,6 +200,38 @@ def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
                 "Common themes and approximate sentiment in text rows.",
             )
         )
+        candidates.append(
+            PlanStep(
+                "topic_modeling",
+                "The dataset contains text/categorical fields, so recurring text themes can be grouped.",
+                "Topic-like clusters of repeated terms with example rows.",
+            )
+        )
+
+    if len(profile.numeric_columns) >= 2 or (profile.categorical_columns and profile.numeric_columns):
+        candidates.append(
+            PlanStep(
+                "statistical_testing",
+                "The dataset supports a bounded significance-style check for relationships or group differences.",
+                "Whether the strongest observed pattern is statistically notable.",
+            )
+        )
+
+    if profile.numeric_columns:
+        candidates.append(
+            PlanStep(
+                "predictive_modeling",
+                "The dataset has numeric outcomes, so a simple baseline prediction can be fit locally.",
+                "A baseline model fit, error estimate, and next-step prediction.",
+            )
+        )
+        candidates.append(
+            PlanStep(
+                "causal_risk_analysis",
+                "The dataset may suggest causal hypotheses, but observational risks must be audited.",
+                "Association evidence plus confounders and causal guardrails.",
+            )
+        )
 
     candidates.append(
         PlanStep(
@@ -209,27 +255,50 @@ def _focus_steps(candidates: list[PlanStep], goal: str) -> list[PlanStep]:
 
     add("dataset_summary")
 
-    if any(token in lowered for token in ("quality", "missing", "null", "clean", "audit", "reliability")):
+    if _goal_has_any(lowered, ("quality", "missing", "null", "clean", "audit", "reliability")):
         add("missing_value_check")
         add("date_quality_check")
         add("chart_generation")
-    elif any(token in lowered for token in ("text", "feedback", "comment", "review", "sentiment", "keyword", "theme", "topic")):
+    elif _goal_has_any(lowered, ("text", "feedback", "comment", "review", "sentiment", "keyword", "theme", "topic")):
         add("text_analysis")
+        add("topic_modeling")
         add("chart_generation")
-    elif any(token in lowered for token in ("trend", "time", "date", "over time", "recent")):
+    elif _goal_has_any(lowered, ("predict", "forecast", "model", "estimate", "projection", "future")):
+        add("predictive_modeling")
+        add("trend_analysis")
+        add("chart_generation")
+    elif _goal_has_any(lowered, ("significant", "significance", "p-value", "p value", "hypothesis", "test")):
+        add("statistical_testing")
+        add("correlation_analysis")
+        add("group_comparison")
+    elif _goal_has_any(lowered, ("causal", "causality", "cause", "impact", "effect", "driver", "why")):
+        add("causal_risk_analysis")
+        add("statistical_testing")
+        add("chart_generation")
+    elif _goal_has_any(lowered, ("trend", "time", "date", "over time", "recent")):
         add("date_quality_check")
         add("trend_analysis")
         add("chart_generation")
-    elif any(token in lowered for token in ("region", "category", "segment", "group", "compare", "weakest", "strongest")):
+    elif _goal_has_any(lowered, ("region", "category", "segment", "group", "compare", "weakest", "strongest")):
         add("group_comparison")
         add("chart_generation")
-    elif any(token in lowered for token in ("correlation", "relationship", "discount", "profit", "risk", "risky")):
+    elif _goal_has_any(lowered, ("correlation", "relationship", "discount", "profit", "risk", "risky")):
         add("correlation_analysis")
         add("group_comparison")
     else:
         return []
 
     return selected
+
+
+def _goal_has_any(goal: str, tokens: tuple[str, ...]) -> bool:
+    for token in tokens:
+        if " " in token or "-" in token:
+            if token in goal:
+                return True
+        elif re.search(rf"\b{re.escape(token)}\b", goal):
+            return True
+    return False
 
 
 def _request_llm_plan(
@@ -263,6 +332,10 @@ def _request_llm_plan(
             "Prefer date_quality_check before trend_analysis when date-like columns exist.",
             "Use trend_analysis only when dataset_profile.date_columns is non-empty.",
             "Prefer text_analysis for text, feedback, comment, review, sentiment, keyword, theme, or topic goals.",
+            "Prefer topic_modeling for theme, topic, clustering, repeated issue, or voice-of-customer goals.",
+            "Prefer statistical_testing for significant, p-value, hypothesis, evidence, or group difference goals.",
+            "Prefer predictive_modeling for predict, forecast, projection, estimate, or future goals.",
+            "Prefer causal_risk_analysis for causal, impact, driver, why, or effect goals, but never claim causality from CSV alone.",
             "Prefer group_comparison for compare, region, category, segment, strongest, or weakest goals.",
             "Use group_comparison only when categorical and numeric columns are both available.",
             "Prefer correlation_analysis for relationship, discount, profit, or risk goals.",

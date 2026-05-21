@@ -9,6 +9,10 @@ DEFAULT_TOOL_SCORES = {
     "trend_analysis": 1.0,
     "date_quality_check": 1.0,
     "text_analysis": 1.0,
+    "topic_modeling": 1.0,
+    "statistical_testing": 1.0,
+    "predictive_modeling": 1.0,
+    "causal_risk_analysis": 1.0,
     "chart_generation": 1.0,
 }
 

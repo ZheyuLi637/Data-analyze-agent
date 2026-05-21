@@ -29,8 +29,9 @@ This maps to course concepts: environment, observation/state, action, policy, to
 - Large CSV row limiting so analysis stays responsive on oversized uploads.
 - Auto header detection for CSV exports with preamble rows before the actual table.
 - Date quality checks for mixed or messy date formats before trend analysis.
-- Lightweight text analysis for feedback/comment datasets, including keywords and lexicon sentiment.
-- Short conversation memory so follow-up prompts can reuse the previous goal and answer.
+- Text analysis for feedback/comment datasets, including keywords, lexicon sentiment, and topic-style recurring theme groups with example rows.
+- Advanced but bounded statistics: approximate significance checks, simple predictive baseline modeling, and causal-risk auditing that prevents unsupported causal claims.
+- Stronger conversation memory so follow-up prompts can reuse the previous goal, previous tools, and prior answer summary.
 - Ambiguous goal detection with dataset-specific clarification suggestions.
 - Stable CSV upload state handling that clears stale results when the file, header setting, or goal changes.
 - OpenAI-compatible LLM configuration through environment variables.
@@ -104,7 +105,7 @@ export LLM_MODEL="qwen-plus"
 python -m unittest discover tests
 ```
 
-The Streamlit app also includes an **Evaluation Dashboard**. Click `Run Evaluation Suite` to run the core grading-oriented scenarios with the LLM disabled: text-only data, numeric-only data, messy dates, complex-header CSV, missing values, empty CSV, no-header CSV, safety guardrail, unclear goal, and large trend data.
+The Streamlit app also includes an **Evaluation Dashboard**. Click `Run Evaluation Suite` to run the core grading-oriented scenarios with the LLM disabled: text-only data, numeric-only data, messy dates, complex-header CSV, missing values, empty CSV, no-header CSV, safety guardrail, unclear goal, large trend data, topic modeling, statistical testing, predictive modeling, and causal guardrails.
 
 ## Boundary CSV Fixtures
 

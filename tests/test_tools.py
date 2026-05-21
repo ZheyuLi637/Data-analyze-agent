@@ -81,6 +81,64 @@ class ToolsTest(unittest.TestCase):
         self.assertIn("Top keywords", result.observation)
         self.assertIn("keyword", result.table.columns)
 
+    def test_topic_modeling_extracts_recurring_themes(self):
+        df = pd.DataFrame(
+            {
+                "customer_feedback": [
+                    "Export workflow is slow and export status is confusing",
+                    "Export download failed and export retry is slow",
+                    "Billing invoice is clear and billing support is useful",
+                    "Billing support solved invoice question quickly",
+                ]
+            }
+        )
+        profile = perceive_dataset(df)
+
+        result = execute_tool("topic_modeling", df, profile, "Find topic themes in feedback")
+
+        self.assertIsNotNone(result.figure)
+        self.assertIn("Modeled recurring topics", result.observation)
+        self.assertIn("topic_label", result.table.columns)
+
+    def test_statistical_testing_reports_p_value(self):
+        df = pd.DataFrame(
+            {
+                "region": ["North", "North", "South", "South", "South"],
+                "sales": [100, 110, 70, 72, 75],
+            }
+        )
+        profile = perceive_dataset(df)
+
+        result = execute_tool("statistical_testing", df, profile, "Test whether sales differs by region")
+
+        self.assertIn("approximate p-value", result.observation)
+        self.assertIn("approx_p_value", result.table.columns)
+
+    def test_predictive_modeling_returns_baseline_fit(self):
+        df = pd.DataFrame({"week": [1, 2, 3, 4, 5], "sales": [10, 15, 21, 26, 30]})
+        profile = perceive_dataset(df)
+
+        result = execute_tool("predictive_modeling", df, profile, "Forecast sales")
+
+        self.assertIsNotNone(result.figure)
+        self.assertIn("Built a simple predictive model", result.observation)
+        self.assertIn("r_squared", result.table.columns)
+
+    def test_causal_risk_analysis_adds_guardrail(self):
+        df = pd.DataFrame(
+            {
+                "campaign": ["A", "A", "B", "B"],
+                "sales": [100, 120, 80, 82],
+                "discount": [5, 6, 15, 14],
+            }
+        )
+        profile = perceive_dataset(df)
+
+        result = execute_tool("causal_risk_analysis", df, profile, "Did campaign cause higher sales?")
+
+        self.assertIn("does not claim causality", result.observation)
+        self.assertIn("causal_guardrail", result.table.columns)
+
     def test_chart_generation_adds_distribution_and_boxplot(self):
         result = execute_tool("chart_generation", self.df, self.profile)
 
