@@ -54,6 +54,33 @@ class ToolsTest(unittest.TestCase):
         self.assertIn("multi-metric trend", result.observation)
         self.assertGreaterEqual(len(result.figure.axes[0].lines), 2)
 
+    def test_date_quality_check_reports_parse_success(self):
+        df = pd.DataFrame({"date": ["2026-01-01", "not-a-date", "2026/01/03"], "sales": [1, 2, 3]})
+        profile = perceive_dataset(df)
+
+        result = execute_tool("date_quality_check", df, profile)
+
+        self.assertIn("parse success", result.observation)
+        self.assertIn("parse_success_percent", result.table.columns)
+
+    def test_text_analysis_extracts_keywords(self):
+        df = pd.DataFrame(
+            {
+                "customer_feedback": [
+                    "The onboarding was smooth and useful",
+                    "The export was slow and confusing",
+                    "Support solved the billing issue quickly",
+                ]
+            }
+        )
+        profile = perceive_dataset(df)
+
+        result = execute_tool("text_analysis", df, profile, "Analyze feedback themes")
+
+        self.assertIsNotNone(result.figure)
+        self.assertIn("Top keywords", result.observation)
+        self.assertIn("keyword", result.table.columns)
+
     def test_chart_generation_adds_distribution_and_boxplot(self):
         result = execute_tool("chart_generation", self.df, self.profile)
 

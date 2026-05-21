@@ -27,6 +27,25 @@ class CSVLoaderTest(unittest.TestCase):
         self.assertEqual(list(loaded.dataframe.columns), ["column_1", "column_2", "column_3", "column_4"])
         self.assertEqual(loaded.dataframe.shape[0], 4)
 
+    def test_auto_detects_header_after_preamble(self):
+        loaded = load_csv_path(Path("data/edge_complex_header.csv"), has_header="auto")
+
+        self.assertIsNone(loaded.error)
+        self.assertIsNotNone(loaded.dataframe)
+        self.assertEqual(loaded.detected_header_row, 2)
+        self.assertEqual(list(loaded.dataframe.columns), ["date", "region", "sales", "profit"])
+        self.assertEqual(loaded.dataframe.shape[0], 4)
+
+    def test_limits_large_csv_rows(self):
+        content = "date,sales\n" + "\n".join(f"2026-01-{(index % 28) + 1:02d},{index}" for index in range(150))
+
+        loaded = load_csv_bytes(content.encode("utf-8"), "large.csv", max_rows=25)
+
+        self.assertIsNone(loaded.error)
+        self.assertTrue(loaded.sampled)
+        self.assertEqual(loaded.original_row_count, 150)
+        self.assertEqual(loaded.dataframe.shape[0], 25)
+
     def test_reports_empty_file_error(self):
         loaded = load_csv_bytes(b"", "empty.csv")
 

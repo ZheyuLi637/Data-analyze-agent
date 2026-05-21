@@ -23,7 +23,15 @@ class PerceptionTest(unittest.TestCase):
         self.assertIn("date", profile.date_columns)
         self.assertEqual(profile.missing_values["sales"], 1)
 
+    def test_records_date_parse_quality_for_messy_dates(self):
+        df = pd.DataFrame({"date": ["2026-01-01", "bad-date", "2026/01/03"], "sales": [1, 2, 3]})
+
+        profile = perceive_dataset(df)
+
+        self.assertIn("date", profile.date_parse_percent)
+        self.assertGreater(profile.date_parse_percent["date"], 0)
+        self.assertIn("bad-date", profile.date_invalid_examples["date"])
+
 
 if __name__ == "__main__":
     unittest.main()
-

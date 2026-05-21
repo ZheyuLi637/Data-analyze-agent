@@ -7,6 +7,8 @@ DEFAULT_TOOL_SCORES = {
     "correlation_analysis": 1.0,
     "group_comparison": 1.0,
     "trend_analysis": 1.0,
+    "date_quality_check": 1.0,
+    "text_analysis": 1.0,
     "chart_generation": 1.0,
 }
 
@@ -29,4 +31,3 @@ def update_tool_scores(
         current = updated.get(tool_name, 1.0)
         updated[tool_name] = round(max(0.5, current + delta), 2)
     return updated
-

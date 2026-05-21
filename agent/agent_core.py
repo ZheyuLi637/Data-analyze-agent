@@ -39,13 +39,17 @@ class DataAnalysisAgent:
         df: pd.DataFrame,
         goal: str,
         tool_scores: dict[str, float] | None = None,
+        prior_context: list[dict] | None = None,
     ) -> AgentRun:
         scores = tool_scores or initial_tool_scores()
         trace: list[dict] = [{"stage": "goal", "content": goal}]
+        effective_goal = _goal_with_memory(goal, prior_context or [])
+        if effective_goal != goal:
+            trace.append({"stage": "memory", "content": effective_goal})
 
         profile = perceive_dataset(df)
         trace.append({"stage": "perceive", "content": profile.to_dict()})
-        column_intent = describe_column_intent(df, profile, goal)
+        column_intent = describe_column_intent(df, profile, effective_goal)
         trace.append({"stage": "column_intent", "content": column_intent})
 
         if profile.row_count == 0:
@@ -82,7 +86,7 @@ class DataAnalysisAgent:
                 guardrail=guardrail,
             )
 
-        clarification = clarification_context(goal, profile)
+        clarification = clarification_context(effective_goal, profile)
         trace.append({"stage": "clarify", "content": clarification})
         if clarification["requires_user_input"]:
             plan = PlanResult(steps=[], source="needs_clarification", error="Goal is not interpretable enough to choose safe actions.")
@@ -221,6 +225,8 @@ def _key_findings(observations: list[str]) -> list[str]:
             findings.append(observation)
         elif observation.startswith("Analyzed "):
             findings.append(observation)
+        elif observation.startswith("Checked date quality"):
+            findings.append(observation)
         elif observation.startswith("Generated distribution") or observation.startswith("Generated count"):
             findings.append(observation)
         elif observation.startswith("Skipped "):
@@ -239,6 +245,8 @@ def _action_reason(plan: PlanResult, tool_results: list[ToolResult]) -> str:
         "correlation_analysis": "measure numeric relationships",
         "group_comparison": "compare performance across categories",
         "trend_analysis": "test time-based movement",
+        "date_quality_check": "verify date parsing quality",
+        "text_analysis": "extract text themes and sentiment",
         "chart_generation": "provide visual support",
     }
     selected = [reasons.get(tool, tool.replace("_", " ")) for tool in tools]
@@ -252,6 +260,10 @@ def _next_step(goal: str, profile: DatasetProfile, observations: list[str]) -> s
         return "Clean or explain the missing values, then rerun the same analysis to check whether the findings change."
     if any(token in lowered for token in ("trend", "over time", "date", "time")) and not profile.date_columns:
         return "Clean the date column into a consistent datetime format before making any trend claim."
+    if any("Date cleanup is recommended" in observation for observation in observations):
+        return "Standardize invalid date values, then rerun trend analysis to compare cleaned and original results."
+    if any(observation.startswith("Analyzed text column") for observation in observations):
+        return "Review the top keywords and sentiment split, then group the original text rows into recurring issue themes."
     if any("Top pairs:" in observation for observation in observations):
         return "Inspect the strongest numeric relationships in the correlation table and validate whether they match domain expectations."
     if any("top average groups" in observation for observation in observations):
@@ -274,11 +286,50 @@ def _caveats(
         caveats.append("Missing values may affect reliability.")
     if any(token in goal.lower() for token in ("trend", "over time", "date", "time")) and not profile.date_columns:
         caveats.append("The date column was not reliably detected, so trend analysis should wait until date cleanup.")
+    weak_date_columns = [
+        column
+        for column, success_percent in profile.date_parse_percent.items()
+        if success_percent < 80
+    ]
+    if weak_date_columns:
+        caveats.append(f"Date cleanup is recommended for: {', '.join(weak_date_columns)}.")
     if not profile.numeric_columns:
         caveats.append("No numeric columns were detected.")
     if any(observation.startswith("Skipped ") for observation in observations):
         caveats.append("At least one requested analysis was skipped because the dataset did not support it.")
     return caveats
+
+
+def _goal_with_memory(goal: str, prior_context: list[dict]) -> str:
+    if not prior_context or not _looks_like_followup(goal):
+        return goal
+    last = prior_context[-1]
+    previous_goal = str(last.get("goal", ""))[:180]
+    previous_answer = str(last.get("final_answer", ""))[:500].replace("\n", " ")
+    return (
+        f"{goal}\n"
+        f"Follow-up context from previous agent run: previous goal was '{previous_goal}'. "
+        f"Previous answer summary: {previous_answer}"
+    )
+
+
+def _looks_like_followup(goal: str) -> bool:
+    lowered = goal.strip().lower()
+    return any(
+        token in lowered
+        for token in (
+            "continue",
+            "follow up",
+            "what about",
+            "also",
+            "next",
+            "继续",
+            "接着",
+            "再分析",
+            "那",
+            "还有",
+        )
+    )
 
 
 def _synthesis_constraints(goal: str, profile: DatasetProfile) -> list[str]:

@@ -147,6 +147,22 @@ class AgentCoreTest(unittest.TestCase):
         self.assertIn("Clean the date column", run.final_answer)
         self.assertIn("date column was not reliably detected", run.final_answer)
 
+    def test_followup_goal_uses_prior_context(self):
+        df = pd.DataFrame({"region": ["North", "South"], "sales": [100, 120], "profit": [20, 30]})
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(
+            df,
+            "continue with the same analysis",
+            initial_tool_scores(),
+            prior_context=[{"goal": "Compare sales by region", "final_answer": "North and South were compared."}],
+        )
+
+        self.assertIn("memory", [item["stage"] for item in run.trace])
+        self.assertGreater(len(run.tool_results), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

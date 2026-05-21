@@ -14,6 +14,8 @@ ALLOWED_TOOL_DESCRIPTIONS = {
     "correlation_analysis": "Compute numeric correlations and draw a correlation heatmap.",
     "group_comparison": "Compare a numeric metric across a categorical field.",
     "trend_analysis": "Analyze a numeric metric over a date-like field.",
+    "date_quality_check": "Check whether date-like columns can be parsed reliably.",
+    "text_analysis": "Extract lightweight keywords and sentiment from substantial text columns.",
     "chart_generation": "Create a simple chart for the most useful numeric or categorical field.",
 }
 
@@ -100,6 +102,10 @@ def filter_applicable_steps(steps: list[PlanStep], profile: DatasetProfile) -> l
             continue
         if step.tool_name == "trend_analysis" and not (profile.date_columns and profile.numeric_columns):
             continue
+        if step.tool_name == "date_quality_check" and not profile.date_parse_percent:
+            continue
+        if step.tool_name == "text_analysis" and not profile.categorical_columns:
+            continue
         if step.tool_name == "missing_value_check" and not any(count > 0 for count in profile.missing_values.values()):
             continue
         applicable.append(step)
@@ -164,6 +170,22 @@ def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
                 "Whether the selected metric increases or decreases over time.",
             )
         )
+    if profile.date_parse_percent:
+        candidates.append(
+            PlanStep(
+                "date_quality_check",
+                "The dataset has date-like fields, so date parse reliability should be checked before trend claims.",
+                "Whether time-based analysis is trustworthy.",
+            )
+        )
+    if profile.categorical_columns:
+        candidates.append(
+            PlanStep(
+                "text_analysis",
+                "The dataset is mostly text, so lightweight keyword and sentiment analysis is more useful than numeric tools.",
+                "Common themes and approximate sentiment in text rows.",
+            )
+        )
 
     candidates.append(
         PlanStep(
@@ -189,8 +211,13 @@ def _focus_steps(candidates: list[PlanStep], goal: str) -> list[PlanStep]:
 
     if any(token in lowered for token in ("quality", "missing", "null", "clean", "audit", "reliability")):
         add("missing_value_check")
+        add("date_quality_check")
+        add("chart_generation")
+    elif any(token in lowered for token in ("text", "feedback", "comment", "review", "sentiment", "keyword", "theme", "topic")):
+        add("text_analysis")
         add("chart_generation")
     elif any(token in lowered for token in ("trend", "time", "date", "over time", "recent")):
+        add("date_quality_check")
         add("trend_analysis")
         add("chart_generation")
     elif any(token in lowered for token in ("region", "category", "segment", "group", "compare", "weakest", "strongest")):
@@ -233,7 +260,9 @@ def _request_llm_plan(
         "planning_rules": [
             "Select dataset_summary when baseline statistics are useful.",
             "Prefer trend_analysis only for time/date goals.",
+            "Prefer date_quality_check before trend_analysis when date-like columns exist.",
             "Use trend_analysis only when dataset_profile.date_columns is non-empty.",
+            "Prefer text_analysis for text, feedback, comment, review, sentiment, keyword, theme, or topic goals.",
             "Prefer group_comparison for compare, region, category, segment, strongest, or weakest goals.",
             "Use group_comparison only when categorical and numeric columns are both available.",
             "Prefer correlation_analysis for relationship, discount, profit, or risk goals.",

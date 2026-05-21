@@ -100,6 +100,22 @@ class PlannerTest(unittest.TestCase):
 
         self.assertEqual([step.tool_name for step in filtered], ["chart_generation"])
 
+    def test_fallback_uses_text_focus(self):
+        df = pd.DataFrame({"feedback": ["The product is useful but exports are slow."]})
+        profile = perceive_dataset(df)
+
+        tools = [step.tool_name for step in fallback_plan(profile, goal="Analyze feedback sentiment and themes")]
+
+        self.assertIn("text_analysis", tools)
+
+    def test_fallback_checks_date_quality_for_messy_dates(self):
+        df = pd.DataFrame({"date": ["2026-01-01", "not-a-date", "unknown"], "sales": [100, 120, 90]})
+        profile = perceive_dataset(df)
+
+        tools = [step.tool_name for step in fallback_plan(profile, goal="Analyze sales trends over time")]
+
+        self.assertIn("date_quality_check", tools)
+
 
 if __name__ == "__main__":
     unittest.main()

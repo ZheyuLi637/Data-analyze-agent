@@ -17,7 +17,7 @@ class EvaluationScenario:
     name: str
     csv_path: str
     goal: str
-    has_header: bool = True
+    has_header: bool | str = True
     expected_source: str | None = None
     expected_tools: set[str] | None = None
     required_tools: set[str] | None = None
@@ -66,6 +66,7 @@ SCENARIOS = [
         name="Text-only data",
         csv_path="data/edge_text_only.csv",
         goal="Analyze this data.",
+        required_tools={"text_analysis"},
         forbidden_tools={"correlation_analysis", "trend_analysis"},
     ),
     EvaluationScenario(
@@ -79,7 +80,15 @@ SCENARIOS = [
         name="Messy dates",
         csv_path="data/edge_messy_dates.csv",
         goal="Analyze sales trends over time.",
+        required_tools={"date_quality_check"},
         forbidden_tools={"trend_analysis"},
+    ),
+    EvaluationScenario(
+        name="Complex header CSV",
+        csv_path="data/edge_complex_header.csv",
+        goal="Analyze sales trends over time.",
+        has_header="auto",
+        required_tools={"date_quality_check", "trend_analysis"},
     ),
     EvaluationScenario(
         name="Missing values",

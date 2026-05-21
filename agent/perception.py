@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 
 import pandas as pd
 
+from agent.date_utils import parse_mixed_dates
+
 
 @dataclass
 class DatasetProfile:
@@ -16,6 +18,8 @@ class DatasetProfile:
     date_columns: list[str]
     missing_values: dict[str, int]
     missing_percent: dict[str, float]
+    date_parse_percent: dict[str, float]
+    date_invalid_examples: dict[str, list[str]]
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -24,7 +28,7 @@ class DatasetProfile:
 def perceive_dataset(df: pd.DataFrame) -> DatasetProfile:
     """Convert a dataframe into the compact state used by the agent."""
     numeric_columns = list(df.select_dtypes(include="number").columns)
-    date_columns = _detect_date_columns(df)
+    date_columns, date_parse_percent, date_invalid_examples = _detect_date_columns(df)
     categorical_columns = [
         column
         for column in df.select_dtypes(include=["object", "category", "bool"]).columns
@@ -50,11 +54,15 @@ def perceive_dataset(df: pd.DataFrame) -> DatasetProfile:
         date_columns=date_columns,
         missing_values=missing_values,
         missing_percent=missing_percent,
+        date_parse_percent=date_parse_percent,
+        date_invalid_examples=date_invalid_examples,
     )
 
 
-def _detect_date_columns(df: pd.DataFrame) -> list[str]:
+def _detect_date_columns(df: pd.DataFrame) -> tuple[list[str], dict[str, float], dict[str, list[str]]]:
     date_columns: list[str] = []
+    date_parse_percent: dict[str, float] = {}
+    date_invalid_examples: dict[str, list[str]] = {}
     for column in df.columns:
         series = df[column].dropna()
         if series.empty:
@@ -64,8 +72,9 @@ def _detect_date_columns(df: pd.DataFrame) -> list[str]:
             continue
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            parsed = pd.to_datetime(series, errors="coerce")
-        success_ratio = parsed.notna().mean()
-        if success_ratio >= 0.8:
+            parsed = parse_mixed_dates(series)
+        date_parse_percent[column] = parsed.success_percent
+        date_invalid_examples[column] = parsed.invalid_examples
+        if parsed.success_percent >= 50:
             date_columns.append(column)
-    return date_columns
+    return date_columns, date_parse_percent, date_invalid_examples

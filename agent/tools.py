@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from agent.column_intent import select_date_column, select_group_columns, select_metric
+from agent.date_utils import parse_mixed_dates
 from agent.perception import DatasetProfile
 
 
@@ -31,6 +32,8 @@ def execute_tool(tool_name: str, df: pd.DataFrame, profile: DatasetProfile, goal
         "correlation_analysis": correlation_analysis,
         "group_comparison": group_comparison,
         "trend_analysis": trend_analysis,
+        "date_quality_check": date_quality_check,
+        "text_analysis": text_analysis,
         "chart_generation": chart_generation,
     }
     if tool_name not in tools:
@@ -190,8 +193,16 @@ def trend_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") ->
     metrics = [primary_metric] + [column for column in profile.numeric_columns if column != primary_metric][:1]
     metric = metrics[0]
     work = df[[date_column] + metrics].copy()
-    work[date_column] = pd.to_datetime(work[date_column], errors="coerce")
+    parsed_dates = parse_mixed_dates(work[date_column]).parsed
+    work = work.loc[parsed_dates.index].copy()
+    work[date_column] = parsed_dates
     work = work.dropna(subset=[date_column])
+    if work.empty:
+        return ToolResult(
+            "trend_analysis",
+            "Trend Analysis",
+            f"Skipped trend analysis because {date_column} could not be parsed into usable dates.",
+        )
     trend = work.sort_values(date_column).groupby(date_column, as_index=False)[metrics].sum()
 
     fig, ax = plt.subplots(figsize=(8, 4.4))
@@ -221,10 +232,89 @@ def trend_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") ->
     return ToolResult("trend_analysis", "Trend Analysis", observation, table=trend, figure=fig)
 
 
+def date_quality_check(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
+    candidates = profile.date_parse_percent or {
+        column: parse_mixed_dates(df[column]).success_percent
+        for column in profile.columns
+        if any(token in column.lower() for token in ("date", "time", "day"))
+    }
+    if not candidates:
+        return ToolResult(
+            "date_quality_check",
+            "Date Quality Check",
+            "Skipped date quality check because no date-like columns were detected.",
+        )
+
+    rows = []
+    for column, success_percent in candidates.items():
+        parsed = parse_mixed_dates(df[column])
+        rows.append(
+            {
+                "column": column,
+                "parse_success_percent": success_percent,
+                "invalid_examples": ", ".join(parsed.invalid_examples) if parsed.invalid_examples else "",
+            }
+        )
+    table = pd.DataFrame(rows).sort_values("parse_success_percent", ascending=False)
+    best = table.iloc[0]
+    observation = (
+        f"Checked date quality for {len(table)} date-like column(s). Best candidate: {best['column']} "
+        f"with {best['parse_success_percent']}% parse success."
+    )
+    if best["parse_success_percent"] < 80:
+        observation += " Date cleanup is recommended before trusting trend conclusions."
+    else:
+        observation += " The parsed dates are usable for a cautious trend analysis."
+    return ToolResult("date_quality_check", "Date Quality Check", observation, table=table)
+
+
+def text_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
+    text_columns = _text_columns(df, profile)
+    if not text_columns:
+        return ToolResult(
+            "text_analysis",
+            "Text Analysis",
+            "Skipped text analysis because no substantial text columns were detected.",
+        )
+
+    column = max(text_columns, key=lambda item: item[1])[0]
+    texts = df[column].dropna().astype(str)
+    tokens = _text_tokens(" ".join(texts))
+    keyword_counts = pd.Series(tokens).value_counts().head(12)
+    table = keyword_counts.reset_index()
+    table.columns = ["keyword", "count"]
+    sentiment = _sentiment_counts(texts)
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    keyword_ax, sentiment_ax = axes
+    keyword_ax.barh(table["keyword"][::-1], table["count"][::-1], color="#5b7f95")
+    keyword_ax.set_title(f"Top keywords in {column}")
+    keyword_ax.set_xlabel("Count")
+    sentiment_ax.bar(sentiment.keys(), sentiment.values(), color=["#2f6f73", "#b9a44c", "#b4554b"])
+    sentiment_ax.set_title("Lexicon sentiment")
+    sentiment_ax.set_ylabel("Rows")
+    fig.tight_layout()
+
+    avg_words = round(texts.apply(lambda value: len(_text_tokens(value))).mean(), 1)
+    top_keywords = ", ".join(table["keyword"].head(5).tolist())
+    observation = (
+        f"Analyzed text column {column}; average cleaned length is {avg_words} words per row. "
+        f"Top keywords: {top_keywords}. Chart explanation: the keyword chart surfaces repeated themes, "
+        "and the sentiment chart gives a lightweight positive/neutral/negative quality signal."
+    )
+    return ToolResult("text_analysis", "Text Analysis", observation, table=table, figure=fig)
+
+
 def chart_generation(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     if profile.numeric_columns:
         metric = select_metric(profile, goal) or profile.numeric_columns[0]
         values = df[metric].dropna()
+        if values.empty:
+            return ToolResult(
+                "chart_generation",
+                "Chart Generation",
+                f"Skipped chart generation because {metric} has no non-missing values.",
+            )
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
         hist_ax, box_ax = axes
         hist_ax.hist(values, bins=8, color="#7d5a50", edgecolor="white")
@@ -263,6 +353,67 @@ def chart_generation(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") 
         observation = "No numeric or categorical columns were available for chart generation."
     fig.tight_layout()
     return ToolResult("chart_generation", "Chart Generation", observation, figure=fig)
+
+
+STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "was",
+    "were",
+    "but",
+    "this",
+    "that",
+    "are",
+    "our",
+    "too",
+    "very",
+    "from",
+    "have",
+    "has",
+    "into",
+    "data",
+}
+POSITIVE_WORDS = {"smooth", "easy", "useful", "quickly", "solved", "clear", "good", "fast", "great", "positive"}
+NEGATIVE_WORDS = {"slow", "confusing", "issue", "problem", "bad", "missing", "negative", "hard", "error", "delay"}
+
+
+def _text_columns(df: pd.DataFrame, profile: DatasetProfile) -> list[tuple[str, float]]:
+    columns: list[tuple[str, float]] = []
+    for column in profile.categorical_columns:
+        texts = df[column].dropna().astype(str)
+        if texts.empty:
+            continue
+        avg_length = float(texts.str.len().mean())
+        avg_words = float(texts.apply(lambda value: len(_text_tokens(value))).mean())
+        if avg_length >= 20 or avg_words >= 4:
+            columns.append((column, avg_words))
+    return columns
+
+
+def _text_tokens(text: str) -> list[str]:
+    import re
+
+    return [
+        token
+        for token in re.findall(r"[a-zA-Z]{3,}", text.lower())
+        if token not in STOPWORDS
+    ]
+
+
+def _sentiment_counts(texts: pd.Series) -> dict[str, int]:
+    counts = {"positive": 0, "neutral": 0, "negative": 0}
+    for text in texts:
+        tokens = set(_text_tokens(text))
+        score = len(tokens & POSITIVE_WORDS) - len(tokens & NEGATIVE_WORDS)
+        if score > 0:
+            counts["positive"] += 1
+        elif score < 0:
+            counts["negative"] += 1
+        else:
+            counts["neutral"] += 1
+    return counts
 
 
 def _missing_severity(percent: float) -> str:

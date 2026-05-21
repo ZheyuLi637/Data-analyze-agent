@@ -38,14 +38,16 @@ def ensure_state() -> None:
         st.session_state.active_request_id = None
     if "last_run_request_id" not in st.session_state:
         st.session_state.last_run_request_id = None
+    if "conversation_memory" not in st.session_state:
+        st.session_state.conversation_memory = []
     if "pending_goal_text" in st.session_state:
         st.session_state.goal_text = st.session_state.pop("pending_goal_text")
 
 
-def read_input_data(uploaded_file, has_header: bool) -> LoadedCSV:
+def read_input_data(uploaded_file, header_mode: str, max_rows: int) -> LoadedCSV:
     if uploaded_file is not None:
-        return load_csv_bytes(uploaded_file.getvalue(), uploaded_file.name, has_header)
-    return load_csv_path(SAMPLE_DATA)
+        return load_csv_bytes(uploaded_file.getvalue(), uploaded_file.name, header_mode, max_rows=max_rows)
+    return load_csv_path(SAMPLE_DATA, "present", max_rows=max_rows)
 
 
 ensure_state()
@@ -74,18 +76,37 @@ with st.sidebar:
 
     st.header("Feedback Scores")
     st.json(st.session_state.tool_scores)
+    st.header("Conversation Memory")
+    st.write(f"{len(st.session_state.conversation_memory)} prior turn(s)")
+    if st.button("Clear Memory"):
+        st.session_state.conversation_memory = []
+        st.rerun()
 
 uploaded = st.file_uploader("Upload CSV", type=["csv"])
-has_header = True
+header_mode = "present"
 if uploaded is not None:
-    has_header = st.checkbox(
-        "First row contains headers",
-        value=True,
-        help="Turn this off for CSV files where every row is data and there is no header row.",
+    header_choice = st.selectbox(
+        "CSV header handling",
+        ["Auto detect header", "First row contains headers", "No header row"],
+        index=0,
+        help="Use auto detect for CSV files with report notes or blank lines before the actual table.",
     )
+    header_mode = {
+        "Auto detect header": "auto",
+        "First row contains headers": "present",
+        "No header row": "absent",
+    }[header_choice]
+max_analysis_rows = st.number_input(
+    "Max analysis rows",
+    min_value=100,
+    max_value=100000,
+    value=5000,
+    step=1000,
+    help="Large CSVs are capped to keep analysis responsive. The app reports when it samples the first rows.",
+)
 goal = st.text_area("Agent goal", height=90, key="goal_text")
 
-loaded_csv = read_input_data(uploaded, has_header)
+loaded_csv = read_input_data(uploaded, header_mode, int(max_analysis_rows))
 current_request_id = (loaded_csv.source_id, goal)
 if current_request_id != st.session_state.active_request_id:
     st.session_state.active_dataset_id = loaded_csv.source_id
@@ -104,8 +125,11 @@ else:
     preview_clarification = clarification_context(goal, preview_profile)
 
     st.caption(
-        f"Active dataset: {loaded_csv.source_name} | {preview_profile.row_count} rows | {preview_profile.column_count} columns"
+        f"Active dataset: {loaded_csv.source_name} | {preview_profile.row_count} loaded rows"
+        f" / {loaded_csv.original_row_count} estimated source rows | {preview_profile.column_count} columns"
     )
+    for note in loaded_csv.notes or []:
+        st.info(note)
 
     if preview_profile.row_count == 0:
         st.error("Dataset has no rows. Upload a CSV with at least one data row before running analysis.")
@@ -128,9 +152,24 @@ else:
 
     if st.button("Run Agent", type="primary"):
         agent = DataAnalysisAgent(OpenAICompatibleClient(config))
-        st.session_state.last_run = agent.run(df, goal, st.session_state.tool_scores)
+        st.session_state.last_run = agent.run(
+            df,
+            goal,
+            st.session_state.tool_scores,
+            prior_context=st.session_state.conversation_memory,
+        )
         st.session_state.last_run_dataset_id = loaded_csv.source_id
         st.session_state.last_run_request_id = current_request_id
+        st.session_state.conversation_memory = (
+            st.session_state.conversation_memory
+            + [
+                {
+                    "goal": goal,
+                    "final_answer": st.session_state.last_run.final_answer,
+                    "tools": st.session_state.last_run.tools_used,
+                }
+            ]
+        )[-3:]
 
 run = st.session_state.last_run
 if (
@@ -205,6 +244,9 @@ if (
                     "useful",
                 )
                 st.rerun()
+
+    with st.expander("Conversation Memory", expanded=False):
+        st.json(st.session_state.conversation_memory)
         with col2:
             if st.button("Not useful"):
                 st.session_state.tool_scores = update_tool_scores(
