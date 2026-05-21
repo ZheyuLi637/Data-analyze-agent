@@ -185,30 +185,6 @@ def inject_styles() -> None:
             text-transform: uppercase;
             margin-bottom: 0.55rem;
         }
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 0.8rem;
-            margin: 1rem 0 0.35rem 0;
-        }
-        .feature-card {
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            padding: 0.9rem 0.95rem;
-            background: #FFFFFF;
-            box-shadow: var(--shadow-soft);
-        }
-        .feature-card strong {
-            display: block;
-            color: var(--title);
-            font-size: 0.93rem;
-            margin-bottom: 0.15rem;
-        }
-        .feature-card span {
-            color: var(--muted);
-            font-size: 0.84rem;
-            line-height: 1.45;
-        }
         .section-label {
             color: var(--muted);
             font-size: 0.73rem;
@@ -346,9 +322,6 @@ def inject_styles() -> None:
             background: var(--accent);
         }
         @media (max-width: 900px) {
-            .feature-grid {
-                grid-template-columns: 1fr;
-            }
             .top-nav {
                 align-items: flex-start;
                 flex-direction: column;
@@ -380,11 +353,6 @@ def render_hero() -> None:
             <div class="eyebrow">Professional AI analysis prototype</div>
             <h1>Data Insight Agent</h1>
             <p>Upload a CSV, describe the decision you want to support, and inspect every step of the agent's perception, plan, tool actions, observations, and feedback loop.</p>
-        </div>
-        <div class="feature-grid">
-            <div class="feature-card"><strong>Perception</strong><span>Detect schema, missing values, text, dates, and column intent before planning.</span></div>
-            <div class="feature-card"><strong>Safe Tool Runner</strong><span>Validated pandas and matplotlib actions execute without arbitrary code access.</span></div>
-            <div class="feature-card"><strong>Evaluation</strong><span>Edge-case checks track guardrails, clarification, latency, charts, and pass rate.</span></div>
         </div>
         """,
         unsafe_allow_html=True,
