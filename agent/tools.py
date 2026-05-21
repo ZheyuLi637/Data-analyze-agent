@@ -11,6 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from agent.column_intent import select_date_column, select_group_columns, select_metric
 from agent.perception import DatasetProfile
 
 
@@ -23,7 +24,7 @@ class ToolResult:
     figure: object | None = None
 
 
-def execute_tool(tool_name: str, df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
+def execute_tool(tool_name: str, df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     tools = {
         "dataset_summary": dataset_summary,
         "missing_value_check": missing_value_check,
@@ -34,10 +35,10 @@ def execute_tool(tool_name: str, df: pd.DataFrame, profile: DatasetProfile) -> T
     }
     if tool_name not in tools:
         raise ValueError(f"Unknown tool: {tool_name}")
-    return tools[tool_name](df, profile)
+    return tools[tool_name](df, profile, goal)
 
 
-def dataset_summary(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
+def dataset_summary(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     numeric = profile.numeric_columns
     if numeric:
         table = df[numeric].describe().transpose().round(2).reset_index()
@@ -49,7 +50,7 @@ def dataset_summary(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
     return ToolResult("dataset_summary", "Dataset Summary", observation, table=table)
 
 
-def missing_value_check(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
+def missing_value_check(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     table = pd.DataFrame(
         {
             "column": list(profile.missing_values.keys()),
@@ -57,12 +58,33 @@ def missing_value_check(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult
             "missing_percent": [profile.missing_percent[c] for c in profile.missing_values],
         }
     )
+    table["severity"] = table["missing_percent"].apply(_missing_severity)
+    table = table.sort_values(["missing_percent", "missing_count"], ascending=False).reset_index(drop=True)
     total_missing = int(table["missing_count"].sum()) if not table.empty else 0
-    observation = f"Found {total_missing} missing values across the dataset."
+    rows_with_missing = int(df.isna().any(axis=1).sum())
+    row_percent = round((rows_with_missing / max(len(df), 1)) * 100, 1)
+    affected_columns = table[table["missing_count"] > 0]
+    if affected_columns.empty:
+        observation = "Found 0 missing values across the dataset."
+    else:
+        top = affected_columns.iloc[0]
+        high_risk_columns = affected_columns[affected_columns["missing_percent"] >= 30]["column"].astype(str).tolist()
+        group_note = _missing_group_note(df, profile, goal)
+        risk_note = (
+            f" High-risk columns: {', '.join(high_risk_columns)}."
+            if high_risk_columns
+            else " No column exceeds the 30% high-risk threshold."
+        )
+        observation = (
+            f"Found {total_missing} missing values across the dataset; {rows_with_missing} rows "
+            f"({row_percent}%) contain at least one missing value. Highest missing column: "
+            f"{top['column']} ({top['missing_count']} values, {top['missing_percent']}%)."
+            f"{risk_note}{group_note}"
+        )
     return ToolResult("missing_value_check", "Missing Value Check", observation, table=table)
 
 
-def correlation_analysis(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
+def correlation_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     numeric = profile.numeric_columns
     if len(numeric) < 2:
         return ToolResult(
@@ -98,7 +120,8 @@ def correlation_analysis(df: pd.DataFrame, profile: DatasetProfile) -> ToolResul
 
     observation = (
         f"Computed correlations across {len(numeric)} numeric columns. "
-        f"Top pairs: {'; '.join(top_pairs)}. Visualized a heatmap and strongest-pair scatter plot."
+        f"Top pairs: {'; '.join(top_pairs)}. Chart explanation: the heatmap highlights relationship strength "
+        "across all numeric columns, and the scatter plot checks the strongest pair for visual consistency."
     )
     return ToolResult(
         "correlation_analysis",
@@ -109,7 +132,7 @@ def correlation_analysis(df: pd.DataFrame, profile: DatasetProfile) -> ToolResul
     )
 
 
-def group_comparison(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
+def group_comparison(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     if not profile.categorical_columns or not profile.numeric_columns:
         return ToolResult(
             "group_comparison",
@@ -117,8 +140,8 @@ def group_comparison(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
             "Skipped group comparison because categorical and numeric columns were not both available.",
         )
 
-    metric = profile.numeric_columns[0]
-    categories = profile.categorical_columns[:2]
+    metric = select_metric(profile, goal) or profile.numeric_columns[0]
+    categories = select_group_columns(df, profile, goal, max_columns=2) or profile.categorical_columns[:2]
     grouped_parts = []
     top_summaries = []
     for category in categories:
@@ -148,12 +171,13 @@ def group_comparison(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
 
     observation = (
         f"Compared {metric} by {', '.join(categories)}; top average groups: {'; '.join(top_summaries)}. "
-        "Visualized category-level rankings with side-by-side bar charts."
+        "Chart explanation: side-by-side bar charts use longer bars to indicate groups with higher average metric values, making the strongest "
+        "groups visible without reading every table row."
     )
     return ToolResult("group_comparison", "Group Comparison", observation, table=grouped, figure=fig)
 
 
-def trend_analysis(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
+def trend_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     if not profile.date_columns or not profile.numeric_columns:
         return ToolResult(
             "trend_analysis",
@@ -161,8 +185,9 @@ def trend_analysis(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
             "Skipped trend analysis because date and numeric columns were not both available.",
         )
 
-    date_column = profile.date_columns[0]
-    metrics = profile.numeric_columns[:2]
+    date_column = select_date_column(profile, goal) or profile.date_columns[0]
+    primary_metric = select_metric(profile, goal) or profile.numeric_columns[0]
+    metrics = [primary_metric] + [column for column in profile.numeric_columns if column != primary_metric][:1]
     metric = metrics[0]
     work = df[[date_column] + metrics].copy()
     work[date_column] = pd.to_datetime(work[date_column], errors="coerce")
@@ -184,16 +209,21 @@ def trend_analysis(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
     fig.tight_layout()
 
     direction = "increased" if len(trend) > 1 and trend[metric].iloc[-1] >= trend[metric].iloc[0] else "decreased"
+    if len(trend) > 1:
+        value_note = f" from {trend[metric].iloc[0]:.2f} to {trend[metric].iloc[-1]:.2f}"
+    else:
+        value_note = ""
     observation = (
-        f"Analyzed {', '.join(metrics)} over {date_column}; {metric} {direction} from first to last point. "
-        "Visualized a multi-metric trend with rolling average when enough points were available."
+        f"Analyzed {', '.join(metrics)} over {date_column}; {metric} {direction}{value_note} from first to last point. "
+        "Chart explanation: the multi-metric trend line chart shows movement over time, the comparison line adds context, and the "
+        "rolling average smooths short-term noise when enough points are available."
     )
     return ToolResult("trend_analysis", "Trend Analysis", observation, table=trend, figure=fig)
 
 
-def chart_generation(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
+def chart_generation(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     if profile.numeric_columns:
-        metric = profile.numeric_columns[0]
+        metric = select_metric(profile, goal) or profile.numeric_columns[0]
         values = df[metric].dropna()
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
         hist_ax, box_ax = axes
@@ -204,9 +234,12 @@ def chart_generation(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
         box_ax.boxplot(values, orientation="vertical", patch_artist=True, boxprops={"facecolor": "#d8b4a6"})
         box_ax.set_title(f"{metric} spread")
         box_ax.set_ylabel(metric)
-        observation = f"Generated distribution and boxplot views for {metric}."
+        observation = (
+            f"Generated distribution and boxplot views for {metric}. Chart explanation: the histogram shows common "
+            f"value ranges, while the boxplot shows median, spread, and possible outliers from {values.min():.2f} to {values.max():.2f}."
+        )
     elif profile.categorical_columns:
-        category = profile.categorical_columns[0]
+        category = select_group_columns(df, profile, goal, max_columns=1)[0]
         counts = df[category].value_counts().head(10)
         shares = (counts / counts.sum() * 100).round(1)
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
@@ -219,13 +252,55 @@ def chart_generation(df: pd.DataFrame, profile: DatasetProfile) -> ToolResult:
         share_ax.barh(shares.index.astype(str), shares.values, color="#5b7f95")
         share_ax.set_title(f"{category} share")
         share_ax.set_xlabel("Percent")
-        observation = f"Generated count and share charts for {category}."
+        top_label = str(counts.index[0]) if not counts.empty else "n/a"
+        observation = (
+            f"Generated count and share charts for {category}. Chart explanation: the tallest bar is {top_label}, "
+            "and the share chart shows whether one category dominates the dataset."
+        )
     else:
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.text(0.5, 0.5, "No plottable columns", ha="center", va="center")
         observation = "No numeric or categorical columns were available for chart generation."
     fig.tight_layout()
     return ToolResult("chart_generation", "Chart Generation", observation, figure=fig)
+
+
+def _missing_severity(percent: float) -> str:
+    if percent >= 30:
+        return "high"
+    if percent >= 10:
+        return "medium"
+    if percent > 0:
+        return "low"
+    return "none"
+
+
+def _missing_group_note(df: pd.DataFrame, profile: DatasetProfile, goal: str) -> str:
+    groups = select_group_columns(df, profile, goal, max_columns=1)
+    if not groups:
+        return ""
+    group = groups[0]
+    work = pd.DataFrame(
+        {
+            "group_value": df[group].fillna("(missing group)").astype(str),
+            "row_has_missing": df.isna().any(axis=1),
+        }
+    )
+    grouped = (
+        work.groupby("group_value")["row_has_missing"]
+        .agg(["count", "sum"])
+        .reset_index()
+        .rename(columns={"sum": "rows_with_missing"})
+    )
+    grouped["missing_row_percent"] = (grouped["rows_with_missing"] / grouped["count"] * 100).round(1)
+    grouped = grouped.sort_values(["missing_row_percent", "rows_with_missing"], ascending=False)
+    if grouped.empty:
+        return ""
+    top = grouped.iloc[0]
+    return (
+        f" Missing rows are most concentrated in {group}={top['group_value']} "
+        f"({int(top['rows_with_missing'])}/{int(top['count'])} rows, {top['missing_row_percent']}%)."
+    )
 
 
 def _top_correlations(corr: pd.DataFrame) -> list[str]:

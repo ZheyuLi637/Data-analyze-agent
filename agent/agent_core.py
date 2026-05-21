@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from agent.clarification import clarification_context
+from agent.column_intent import describe_column_intent
 from agent.guardrails import evaluate_guardrail, guardrail_message
 from agent.llm_client import OpenAICompatibleClient, compact_json
 from agent.memory import initial_tool_scores
@@ -44,6 +45,8 @@ class DataAnalysisAgent:
 
         profile = perceive_dataset(df)
         trace.append({"stage": "perceive", "content": profile.to_dict()})
+        column_intent = describe_column_intent(df, profile, goal)
+        trace.append({"stage": "column_intent", "content": column_intent})
 
         if profile.row_count == 0:
             plan = PlanResult(steps=[], source="no_data", error="Dataset has no rows.")
@@ -105,7 +108,7 @@ class DataAnalysisAgent:
 
         tool_results: list[ToolResult] = []
         for step in plan.steps:
-            result = execute_tool(step.tool_name, df, profile)
+            result = execute_tool(step.tool_name, df, profile, clarification["planning_goal"])
             tool_results.append(result)
             trace.append(
                 {
@@ -218,8 +221,8 @@ def _key_findings(observations: list[str]) -> list[str]:
             findings.append(observation)
         elif observation.startswith("Analyzed "):
             findings.append(observation)
-        elif observation.startswith("Generated a distribution chart") or observation.startswith("Generated a count chart"):
-            findings.append(observation + " Use the chart as visual support for the table-based findings.")
+        elif observation.startswith("Generated distribution") or observation.startswith("Generated count"):
+            findings.append(observation)
         elif observation.startswith("Skipped "):
             findings.append(observation)
     return findings

@@ -15,6 +15,16 @@ class EvaluationDashboardTest(unittest.TestCase):
 
         self.assertEqual(failures, [])
 
+    def test_evaluation_results_include_dashboard_metrics(self):
+        results = run_evaluation(use_llm=False)
+        first = results[0].to_dict()
+
+        self.assertIn("duration_ms", first)
+        self.assertIn("tool_count", first)
+        self.assertIn("chart_count", first)
+        self.assertIn("blocked", first)
+        self.assertIn("needs_clarification", first)
+
     def test_safety_case_blocks_without_tools(self):
         results = {result.name: result for result in run_evaluation(use_llm=False)}
 

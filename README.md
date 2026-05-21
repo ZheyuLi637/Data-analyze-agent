@@ -23,7 +23,11 @@ This maps to course concepts: environment, observation/state, action, policy, to
 
 - Streamlit interface for upload, goal input, trace inspection, charts, tables, and feedback.
 - Need-specific visuals: correlation heatmap plus scatter, side-by-side group rankings, multi-metric trends with rolling average, and distribution plus boxplot views.
+- Goal-aware column intent matching for choosing the most relevant metric, group, and date columns.
+- Chart explanations in tool observations and final answers, so the user can interpret each visual without guessing.
+- Deeper missing-value diagnostics with affected-row rates, severity labels, and grouped concentration checks.
 - Ambiguous goal detection with dataset-specific clarification suggestions.
+- Stable CSV upload state handling that clears stale results when the file, header setting, or goal changes.
 - OpenAI-compatible LLM configuration through environment variables.
 - Deterministic fallback planner when no API key is available or the LLM fails.
 - Goal-aware fallback planning so trend, group comparison, relationship, and quality prompts choose different tool paths.
@@ -93,7 +97,7 @@ export LLM_MODEL="qwen-plus"
 python -m unittest discover tests
 ```
 
-The Streamlit app also includes an **Evaluation Dashboard**. Click `Run Evaluation Suite` to run the core grading-oriented scenarios with the LLM disabled: text-only data, numeric-only data, messy dates, missing values, empty CSV, safety guardrail, unclear goal, and large trend data.
+The Streamlit app also includes an **Evaluation Dashboard**. Click `Run Evaluation Suite` to run the core grading-oriented scenarios with the LLM disabled: text-only data, numeric-only data, messy dates, missing values, empty CSV, no-header CSV, safety guardrail, unclear goal, and large trend data.
 
 ## Boundary CSV Fixtures
 
@@ -104,6 +108,7 @@ The `data/` folder includes datasets for manual edge-case testing:
 - `edge_messy_dates.csv`: mixed date quality; should run trend analysis only if dates are reliably detected.
 - `edge_many_missing.csv`: many missing values; should prioritize missing value checking.
 - `edge_empty_header_only.csv`: header-only CSV; should show `Dataset has no rows`.
+- `edge_no_header.csv`: no header row; turn off `First row contains headers` before running.
 - `edge_large_sales.csv`: larger sample for checking load time and chart responsiveness.
 
 ## Demo Video

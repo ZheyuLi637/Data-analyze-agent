@@ -42,6 +42,11 @@ class ToolsTest(unittest.TestCase):
         self.assertIn("side-by-side bar charts", result.observation)
         self.assertGreaterEqual(len(result.figure.axes), 1)
 
+    def test_group_comparison_uses_goal_matched_metric(self):
+        result = execute_tool("group_comparison", self.df, self.profile, "Compare profit by region")
+
+        self.assertIn("Compared profit by region", result.observation)
+
     def test_trend_analysis_uses_multi_metric_visual(self):
         result = execute_tool("trend_analysis", self.df, self.profile)
 
@@ -54,7 +59,24 @@ class ToolsTest(unittest.TestCase):
 
         self.assertIsNotNone(result.figure)
         self.assertIn("distribution and boxplot", result.observation)
+        self.assertIn("Chart explanation", result.observation)
         self.assertEqual(len(result.figure.axes), 2)
+
+    def test_missing_value_check_reports_severity_and_affected_rows(self):
+        df = pd.DataFrame(
+            {
+                "region": ["North", "South", "North"],
+                "sales": [100, None, None],
+                "profit": [20, 30, None],
+            }
+        )
+        profile = perceive_dataset(df)
+
+        result = execute_tool("missing_value_check", df, profile, "Audit missing values by region")
+
+        self.assertIn("rows", result.observation)
+        self.assertIn("Highest missing column", result.observation)
+        self.assertIn("severity", result.table.columns)
 
     def test_unknown_tool_raises(self):
         with self.assertRaises(ValueError):

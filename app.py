@@ -7,6 +7,7 @@ import streamlit as st
 
 from agent.agent_core import DataAnalysisAgent
 from agent.clarification import clarification_context
+from agent.csv_loader import LoadedCSV, load_csv_bytes, load_csv_path
 from agent.evaluation import run_evaluation
 from agent.llm_client import LLMConfig, OpenAICompatibleClient
 from agent.memory import initial_tool_scores, update_tool_scores
@@ -20,10 +21,6 @@ DEFAULT_GOAL = "Find useful patterns, risks, and next-step recommendations in th
 st.set_page_config(page_title="COMPSCI 767 Data Analysis Agent", layout="wide")
 
 
-def load_sample_data() -> pd.DataFrame:
-    return pd.read_csv(SAMPLE_DATA)
-
-
 def ensure_state() -> None:
     if "tool_scores" not in st.session_state:
         st.session_state.tool_scores = initial_tool_scores()
@@ -33,14 +30,22 @@ def ensure_state() -> None:
         st.session_state.goal_text = DEFAULT_GOAL
     if "evaluation_results" not in st.session_state:
         st.session_state.evaluation_results = None
+    if "active_dataset_id" not in st.session_state:
+        st.session_state.active_dataset_id = None
+    if "last_run_dataset_id" not in st.session_state:
+        st.session_state.last_run_dataset_id = None
+    if "active_request_id" not in st.session_state:
+        st.session_state.active_request_id = None
+    if "last_run_request_id" not in st.session_state:
+        st.session_state.last_run_request_id = None
     if "pending_goal_text" in st.session_state:
         st.session_state.goal_text = st.session_state.pop("pending_goal_text")
 
 
-def read_input_data(uploaded_file) -> pd.DataFrame:
+def read_input_data(uploaded_file, has_header: bool) -> LoadedCSV:
     if uploaded_file is not None:
-        return pd.read_csv(uploaded_file)
-    return load_sample_data()
+        return load_csv_bytes(uploaded_file.getvalue(), uploaded_file.name, has_header)
+    return load_csv_path(SAMPLE_DATA)
 
 
 ensure_state()
@@ -71,37 +76,68 @@ with st.sidebar:
     st.json(st.session_state.tool_scores)
 
 uploaded = st.file_uploader("Upload CSV", type=["csv"])
+has_header = True
+if uploaded is not None:
+    has_header = st.checkbox(
+        "First row contains headers",
+        value=True,
+        help="Turn this off for CSV files where every row is data and there is no header row.",
+    )
 goal = st.text_area("Agent goal", height=90, key="goal_text")
 
-df = read_input_data(uploaded)
-preview_profile = perceive_dataset(df)
-preview_clarification = clarification_context(goal, preview_profile)
+loaded_csv = read_input_data(uploaded, has_header)
+current_request_id = (loaded_csv.source_id, goal)
+if current_request_id != st.session_state.active_request_id:
+    st.session_state.active_dataset_id = loaded_csv.source_id
+    st.session_state.active_request_id = current_request_id
+    st.session_state.last_run = None
+    st.session_state.last_run_dataset_id = None
+    st.session_state.last_run_request_id = None
 
-if preview_profile.row_count == 0:
-    st.error("Dataset has no rows. Upload a CSV with at least one data row before running analysis.")
+if loaded_csv.error:
+    st.error(loaded_csv.error)
+    st.info("No analysis will run until the uploaded CSV can be read.")
+else:
+    df = loaded_csv.dataframe
+    assert df is not None
+    preview_profile = perceive_dataset(df)
+    preview_clarification = clarification_context(goal, preview_profile)
 
-if preview_clarification["ambiguous"]:
-    suggestions = preview_clarification["suggestions"]
-    if preview_clarification["requires_user_input"]:
-        st.warning("The goal is not interpretable enough to choose safe actions. Choose a suggested focus before running the agent.")
-    else:
-        st.info("The goal is broad. Choose a suggested focus or run the agent with the first suggestion as planning context.")
-    cols = st.columns(len(suggestions))
-    for index, suggestion in enumerate(suggestions):
-        with cols[index]:
-            if st.button(suggestion, key=f"suggestion_{index}"):
-                st.session_state.pending_goal_text = suggestion
-                st.rerun()
+    st.caption(
+        f"Active dataset: {loaded_csv.source_name} | {preview_profile.row_count} rows | {preview_profile.column_count} columns"
+    )
 
-st.subheader("Dataset Preview")
-st.dataframe(df.head(8), width="stretch")
+    if preview_profile.row_count == 0:
+        st.error("Dataset has no rows. Upload a CSV with at least one data row before running analysis.")
 
-if st.button("Run Agent", type="primary"):
-    agent = DataAnalysisAgent(OpenAICompatibleClient(config))
-    st.session_state.last_run = agent.run(df, goal, st.session_state.tool_scores)
+    if preview_clarification["ambiguous"]:
+        suggestions = preview_clarification["suggestions"]
+        if preview_clarification["requires_user_input"]:
+            st.warning("The goal is not interpretable enough to choose safe actions. Choose a suggested focus before running the agent.")
+        else:
+            st.info("The goal is broad. Choose a suggested focus or run the agent with the first suggestion as planning context.")
+        cols = st.columns(len(suggestions))
+        for index, suggestion in enumerate(suggestions):
+            with cols[index]:
+                if st.button(suggestion, key=f"suggestion_{index}"):
+                    st.session_state.pending_goal_text = suggestion
+                    st.rerun()
+
+    st.subheader("Dataset Preview")
+    st.dataframe(df.head(8), width="stretch")
+
+    if st.button("Run Agent", type="primary"):
+        agent = DataAnalysisAgent(OpenAICompatibleClient(config))
+        st.session_state.last_run = agent.run(df, goal, st.session_state.tool_scores)
+        st.session_state.last_run_dataset_id = loaded_csv.source_id
+        st.session_state.last_run_request_id = current_request_id
 
 run = st.session_state.last_run
-if run:
+if (
+    run
+    and st.session_state.last_run_dataset_id == st.session_state.active_dataset_id
+    and st.session_state.last_run_request_id == st.session_state.active_request_id
+):
     clarification = getattr(
         run,
         "clarification",
@@ -192,13 +228,26 @@ if evaluation_results:
     passed_count = sum(result.passed for result in evaluation_results)
     total_count = len(evaluation_results)
     pass_rate = passed_count / total_count if total_count else 0
-    metric_cols = st.columns(3)
+    total_tools = sum(len(result.tools) for result in evaluation_results)
+    total_charts = sum(result.chart_count for result in evaluation_results)
+    average_latency = (
+        sum(result.duration_ms for result in evaluation_results) / total_count
+        if total_count
+        else 0
+    )
+    blocked_count = sum(result.blocked for result in evaluation_results)
+    clarification_count = sum(result.needs_clarification for result in evaluation_results)
+
+    metric_cols = st.columns(4)
     metric_cols[0].metric("Passed cases", f"{passed_count}/{total_count}")
     metric_cols[1].metric("Pass rate", f"{pass_rate:.0%}")
-    metric_cols[2].metric(
-        "Failed cases",
-        str(total_count - passed_count),
-    )
+    metric_cols[2].metric("Avg latency", f"{average_latency:.0f} ms")
+    metric_cols[3].metric("Tools / charts", f"{total_tools} / {total_charts}")
+
+    coverage_cols = st.columns(3)
+    coverage_cols[0].metric("Failed cases", str(total_count - passed_count))
+    coverage_cols[1].metric("Guardrail cases", str(blocked_count))
+    coverage_cols[2].metric("Clarification cases", str(clarification_count))
 
     if passed_count == total_count:
         st.success("All evaluation scenarios passed.")
