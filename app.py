@@ -16,6 +16,7 @@ from agent.perception import perceive_dataset
 
 SAMPLE_DATA = Path("data/sample_sales.csv")
 DEFAULT_GOAL = "Find useful patterns, risks, and next-step recommendations in this dataset."
+DEFAULT_MAX_ANALYSIS_ROWS = 5000
 
 
 st.set_page_config(page_title="COMPSCI 767 Data Analysis Agent", layout="wide")
@@ -381,15 +382,6 @@ with st.sidebar:
             "First row contains headers": "present",
             "No header row": "absent",
         }[header_choice]
-    max_analysis_rows = st.number_input(
-        "Max analysis rows",
-        min_value=100,
-        max_value=100000,
-        value=5000,
-        step=1000,
-        help="Large CSVs are capped to keep analysis responsive. The app reports when it samples the first rows.",
-    )
-
     st.divider()
     st.header("LLM Provider")
     if config.ready:
@@ -448,7 +440,7 @@ with task_col:
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-loaded_csv = read_input_data(uploaded, header_mode, int(max_analysis_rows))
+loaded_csv = read_input_data(uploaded, header_mode, DEFAULT_MAX_ANALYSIS_ROWS)
 current_request_id = (loaded_csv.source_id, goal)
 if current_request_id != st.session_state.active_request_id:
     st.session_state.active_dataset_id = loaded_csv.source_id
@@ -506,44 +498,17 @@ else:
                     st.session_state.pending_goal_text = suggestion
                     st.rerun()
 
-    section_label("Dataset Overview")
-    missing_total = sum(preview_profile.missing_values.values())
-    metric_cols = st.columns(5)
-    metric_cols[0].metric("Loaded rows", f"{preview_profile.row_count:,}")
-    metric_cols[1].metric("Columns", preview_profile.column_count)
-    metric_cols[2].metric("Numeric", len(preview_profile.numeric_columns))
-    metric_cols[3].metric("Categorical", len(preview_profile.categorical_columns))
-    metric_cols[4].metric("Missing values", missing_total)
-
-    preview_col, schema_col = st.columns([1.75, 1])
-    with preview_col:
-        with st.container(border=True):
-            st.markdown("### Dataset Preview")
-            st.dataframe(df.head(8), width="stretch", height=300)
-    with schema_col:
-        with st.container(border=True):
-            st.markdown("### Detected Schema")
-            schema_rows = []
-            for column in preview_profile.columns:
-                if column in preview_profile.numeric_columns:
-                    role = "numeric"
-                elif column in preview_profile.date_columns:
-                    role = "date"
-                elif column in preview_profile.categorical_columns:
-                    role = "categorical/text"
-                else:
-                    role = "other"
-                schema_rows.append(
-                    {
-                        "column": column,
-                        "role": role,
-                        "missing": preview_profile.missing_values.get(column, 0),
-                    }
-                )
-            st.dataframe(pd.DataFrame(schema_rows), width="stretch", height=300)
-
     run_disabled = bool(loaded_csv.error or preview_profile.row_count == 0)
-    run_clicked = st.button("Run Agent Analysis", type="primary", disabled=run_disabled, use_container_width=True)
+    section_label("Agent Control")
+    with st.container(border=True):
+        control_col, status_col = st.columns([1.2, 1])
+        with control_col:
+            run_clicked = st.button("Run Agent Analysis", type="primary", disabled=run_disabled, use_container_width=True)
+        with status_col:
+            if run_disabled:
+                st.caption("Upload a CSV with at least one data row before running.")
+            else:
+                st.caption(f"Ready to analyze {preview_profile.row_count:,} rows and {preview_profile.column_count} columns.")
     if run_clicked:
         progress = st.progress(0, text="Initializing agent workflow...")
         with st.status("Agent workflow running", expanded=True) as status:
