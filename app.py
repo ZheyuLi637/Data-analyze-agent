@@ -54,86 +54,151 @@ def inject_styles() -> None:
     st.markdown(
         """
         <style>
+        :root {
+            --bg: #F7F9FB;
+            --panel: #FFFFFF;
+            --line: #E1E4E8;
+            --line-soft: #EAEAEA;
+            --title: #111111;
+            --text: #1F2328;
+            --muted: #6B7280;
+            --accent: #0969DA;
+            --accent-soft: #EAF3FF;
+        }
         .stApp {
-            background:
-                radial-gradient(circle at top left, rgba(45, 125, 141, 0.12), transparent 28rem),
-                linear-gradient(180deg, #f7f9fc 0%, #eef3f6 100%);
-            color: #17202a;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
         }
         .block-container {
-            padding-top: 1.4rem;
-            padding-bottom: 2.5rem;
-            max-width: 1280px;
+            padding-top: 2.25rem;
+            padding-bottom: 3.5rem;
+            max-width: 1180px;
         }
         [data-testid="stSidebar"] {
-            background: #ffffff;
-            border-right: 1px solid #dfe6ec;
+            background: var(--panel);
+            border-right: 1px solid var(--line-soft);
         }
-        .hero {
-            border: 1px solid #dfe8ed;
-            border-radius: 12px;
-            padding: 1.25rem 1.4rem;
-            background: linear-gradient(135deg, #ffffff 0%, #edf7f5 58%, #f8fbff 100%);
-            box-shadow: 0 16px 45px rgba(34, 52, 68, 0.08);
-            margin-bottom: 1rem;
-        }
-        .hero h1 {
-            font-size: 2.15rem;
-            line-height: 1.1;
-            margin: 0 0 0.45rem 0;
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3 {
+            color: var(--title);
             letter-spacing: 0;
         }
+        h1, h2, h3 {
+            color: var(--title);
+            letter-spacing: 0;
+        }
+        .hero {
+            padding: 0.35rem 0 1.6rem 0;
+            margin-bottom: 0.65rem;
+            border-bottom: 1px solid var(--line-soft);
+        }
+        .hero h1 {
+            color: var(--title);
+            font-size: 2.35rem;
+            line-height: 1.08;
+            margin: 0 0 0.45rem 0;
+            letter-spacing: 0;
+            font-weight: 720;
+        }
         .hero p {
-            color: #536471;
+            color: var(--muted);
             margin: 0;
-            font-size: 1rem;
+            font-size: 1.02rem;
+            max-width: 760px;
         }
-        .pill-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-top: 0.9rem;
-        }
-        .pill {
-            border: 1px solid #cfe2df;
-            background: #f5fbfa;
-            color: #1d5f67;
-            padding: 0.28rem 0.58rem;
-            border-radius: 999px;
-            font-size: 0.78rem;
-            font-weight: 650;
+        .eyebrow {
+            color: var(--accent);
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.55rem;
         }
         .section-label {
-            color: #58706f;
-            font-size: 0.78rem;
+            color: var(--muted);
+            font-size: 0.73rem;
             letter-spacing: 0.08em;
             text-transform: uppercase;
             font-weight: 750;
-            margin-bottom: 0.35rem;
+            margin: 2rem 0 0.6rem 0;
         }
         .soft-note {
-            color: #60717e;
+            color: var(--muted);
             font-size: 0.9rem;
-            margin-top: -0.25rem;
+            margin-top: 0.55rem;
+        }
+        .input-shell {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 1.1rem 1.15rem 1rem 1.15rem;
+            box-shadow: 0 8px 30px rgba(17, 24, 39, 0.04);
+        }
+        .context-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 1rem;
+            min-height: 100%;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            background: var(--panel);
+            border: 1px solid var(--line) !important;
+            border-radius: 14px !important;
+            box-shadow: none;
         }
         div[data-testid="stMetric"] {
-            background: #ffffff;
-            border: 1px solid #dfe8ed;
-            border-radius: 10px;
-            padding: 0.7rem 0.85rem;
-            box-shadow: 0 10px 28px rgba(34, 52, 68, 0.05);
+            background: var(--panel);
+            border: 1px solid var(--line-soft);
+            border-radius: 12px;
+            padding: 0.8rem 0.9rem;
+            box-shadow: none;
         }
         div[data-testid="stMetricLabel"] {
-            color: #5b6b76;
+            color: var(--muted);
             font-weight: 650;
         }
+        div[data-testid="stMetricValue"] {
+            color: var(--title);
+        }
         .stButton > button {
-            border-radius: 9px;
+            border-radius: 10px;
             font-weight: 700;
+            border: 1px solid var(--line);
+        }
+        .stButton > button[kind="primary"] {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #FFFFFF;
+            box-shadow: 0 8px 18px rgba(9, 105, 218, 0.18);
+        }
+        .stTextArea textarea {
+            background: #FFFFFF;
+            border: 0;
+            box-shadow: none;
+            color: var(--text);
+            font-size: 1rem;
+            line-height: 1.55;
+        }
+        .stTextArea textarea:focus {
+            border: 0;
+            box-shadow: none;
         }
         .stDataFrame {
-            border-radius: 10px;
+            border: 1px solid var(--line-soft);
+            border-radius: 12px;
             overflow: hidden;
+            background: var(--panel);
+        }
+        div[data-testid="stStatusWidget"] {
+            border: 1px solid var(--line) !important;
+            border-radius: 12px !important;
+            background: var(--panel) !important;
+        }
+        .stProgress > div > div > div > div {
+            background-color: var(--accent);
         }
         </style>
         """,
@@ -149,15 +214,9 @@ def render_hero() -> None:
     st.markdown(
         """
         <div class="hero">
-            <h1>🤖 Data Insight Agent</h1>
-            <p>LLM-augmented CSV analysis with tool validation, ReAct-style tracing, feedback memory, and evaluation.</p>
-            <div class="pill-row">
-                <span class="pill">Perceive</span>
-                <span class="pill">Plan</span>
-                <span class="pill">Act with tools</span>
-                <span class="pill">Observe</span>
-                <span class="pill">Learn from feedback</span>
-            </div>
+            <div class="eyebrow">AI data workspace</div>
+            <h1>Data Insight Agent</h1>
+            <p>Upload a CSV, describe the decision you want to support, and inspect every step of the agent's perception, plan, tool actions, observations, and feedback loop.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -225,19 +284,20 @@ with st.sidebar:
 section_label("Task Configuration")
 task_col, context_col = st.columns([2.1, 1])
 with task_col:
-    with st.container(border=True):
-        st.markdown("### Agent Goal")
-        goal = st.text_area(
-            "Agent goal",
-            height=118,
-            key="goal_text",
-            label_visibility="collapsed",
-            placeholder="Example: Compare profit by customer segment and explain the strongest group.",
-        )
-        st.markdown(
-            '<div class="soft-note">Describe the decision you want the agent to support. Follow-up prompts can reuse recent memory.</div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown('<div class="input-shell">', unsafe_allow_html=True)
+    st.markdown("### Ask the agent")
+    goal = st.text_area(
+        "Agent goal",
+        height=124,
+        key="goal_text",
+        label_visibility="collapsed",
+        placeholder="Example: Compare profit by customer segment and explain the strongest group.",
+    )
+    st.markdown(
+        '<div class="soft-note">Describe the decision you want the agent to support. Follow-up prompts can reuse recent memory.</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 loaded_csv = read_input_data(uploaded, header_mode, int(max_analysis_rows))
 current_request_id = (loaded_csv.source_id, goal)
@@ -258,16 +318,17 @@ if not loaded_csv.error:
     preview_clarification = clarification_context(goal, preview_profile)
 
 with context_col:
-    with st.container(border=True):
-        st.markdown("### Runtime Context")
-        st.metric("Memory turns", len(st.session_state.conversation_memory))
-        st.metric("LLM mode", "Enabled" if config.ready else "Fallback")
-        if loaded_csv.error:
-            st.error("CSV not ready")
-        else:
-            assert preview_profile is not None
-            st.caption(loaded_csv.source_name)
-            st.caption(f"{preview_profile.row_count} loaded rows / {loaded_csv.original_row_count} source rows")
+    st.markdown('<div class="context-card">', unsafe_allow_html=True)
+    st.markdown("### Runtime context")
+    st.metric("Memory turns", len(st.session_state.conversation_memory))
+    st.metric("LLM mode", "Enabled" if config.ready else "Fallback")
+    if loaded_csv.error:
+        st.error("CSV not ready")
+    else:
+        assert preview_profile is not None
+        st.caption(loaded_csv.source_name)
+        st.caption(f"{preview_profile.row_count} loaded rows / {loaded_csv.original_row_count} source rows")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 if loaded_csv.error:
     st.error(loaded_csv.error)
