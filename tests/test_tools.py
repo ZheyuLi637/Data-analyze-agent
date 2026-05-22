@@ -57,6 +57,10 @@ class ToolsTest(unittest.TestCase):
         self.assertIn("Skipped because", result.observation)
         self.assertIsNone(result.figure)
 
+        chart = execute_tool("chart_generation", df, profile, "Compare sales by user")
+        self.assertIn("Skipped because", chart.observation)
+        self.assertIsNone(chart.figure)
+
     def test_trend_analysis_uses_multi_metric_visual(self):
         result = execute_tool("trend_analysis", self.df, self.profile)
 

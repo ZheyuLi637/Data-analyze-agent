@@ -596,6 +596,12 @@ def causal_risk_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = 
 
 
 def chart_generation(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
+    if _goal_requests_grouping(goal) and profile.categorical_columns and not _valid_group_columns(df, profile.categorical_columns):
+        return ToolResult(
+            "chart_generation",
+            "Chart Generation",
+            _skip_message("the requested grouping columns have too many unique values", "Use a lower-cardinality category before generating group charts."),
+        )
     if profile.numeric_columns:
         metric = select_metric(profile, goal) or profile.numeric_columns[0]
         values = df[metric].dropna()
@@ -708,6 +714,11 @@ def _valid_group_columns(df: pd.DataFrame, columns: list[str]) -> list[str]:
         if 1 < cardinality <= threshold:
             valid.append(column)
     return valid
+
+
+def _goal_requests_grouping(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(token in lowered for token in ("compare", "group", "segment", "category", "by ", "across", "strongest", "weakest"))
 
 
 def _text_columns(df: pd.DataFrame, profile: DatasetProfile) -> list[tuple[str, float]]:
