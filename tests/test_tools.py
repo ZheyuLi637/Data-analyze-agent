@@ -31,6 +31,7 @@ class ToolsTest(unittest.TestCase):
         self.assertIsNotNone(result.table)
         self.assertIn("Top pairs", result.observation)
         self.assertIn("heatmap", result.observation)
+        self.assertIn("bonferroni_p_value", result.table.columns)
         self.assertGreaterEqual(len(result.figure.axes), 2)
 
     def test_group_comparison_includes_multiple_categorical_columns(self):
@@ -47,12 +48,30 @@ class ToolsTest(unittest.TestCase):
 
         self.assertIn("Compared profit by region", result.observation)
 
+    def test_group_comparison_skips_high_cardinality_columns(self):
+        df = pd.DataFrame({"user_id": [f"user_{index}" for index in range(80)], "sales": range(80)})
+        profile = perceive_dataset(df)
+
+        result = execute_tool("group_comparison", df, profile, "Compare sales by user")
+
+        self.assertIn("Skipped because", result.observation)
+        self.assertIsNone(result.figure)
+
     def test_trend_analysis_uses_multi_metric_visual(self):
         result = execute_tool("trend_analysis", self.df, self.profile)
 
         self.assertIsNotNone(result.figure)
         self.assertIn("multi-metric trend", result.observation)
         self.assertGreaterEqual(len(result.figure.axes[0].lines), 2)
+
+    def test_trend_analysis_skips_unreliable_dates(self):
+        df = pd.DataFrame({"date": ["2026-01-01", "bad", "unknown", "missing"], "sales": [1, 2, 3, 4]})
+        profile = perceive_dataset(df)
+
+        result = execute_tool("trend_analysis", df, profile, "Analyze sales trends over time")
+
+        self.assertIn("Skipped because", result.observation)
+        self.assertIsNone(result.figure)
 
     def test_date_quality_check_reports_parse_success(self):
         df = pd.DataFrame({"date": ["2026-01-01", "not-a-date", "2026/01/03"], "sales": [1, 2, 3]})
@@ -78,8 +97,10 @@ class ToolsTest(unittest.TestCase):
         result = execute_tool("text_analysis", df, profile, "Analyze feedback themes")
 
         self.assertIsNotNone(result.figure)
-        self.assertIn("Top keywords", result.observation)
+        self.assertIn("Top TF-IDF keywords", result.observation)
         self.assertIn("keyword", result.table.columns)
+        self.assertIn("tfidf_score", result.table.columns)
+        self.assertIn("document_count", result.table.columns)
 
     def test_topic_modeling_extracts_recurring_themes(self):
         df = pd.DataFrame(
@@ -114,8 +135,22 @@ class ToolsTest(unittest.TestCase):
         self.assertIn("approximate p-value", result.observation)
         self.assertIn("approx_p_value", result.table.columns)
 
+    def test_statistical_testing_uses_anova_for_three_groups(self):
+        df = pd.DataFrame(
+            {
+                "region": ["North", "North", "South", "South", "West", "West"],
+                "sales": [100, 110, 70, 72, 90, 95],
+            }
+        )
+        profile = perceive_dataset(df)
+
+        result = execute_tool("statistical_testing", df, profile, "Test whether sales differs by region")
+
+        self.assertEqual(result.table.iloc[0]["test"], "One-way ANOVA")
+        self.assertIn("approx_p_value", result.table.columns)
+
     def test_predictive_modeling_returns_baseline_fit(self):
-        df = pd.DataFrame({"week": [1, 2, 3, 4, 5], "sales": [10, 15, 21, 26, 30]})
+        df = pd.DataFrame({"week": list(range(1, 11)), "sales": [10, 15, 21, 26, 30, 35, 40, 44, 49, 55]})
         profile = perceive_dataset(df)
 
         result = execute_tool("predictive_modeling", df, profile, "Forecast sales")
@@ -123,6 +158,26 @@ class ToolsTest(unittest.TestCase):
         self.assertIsNotNone(result.figure)
         self.assertIn("Built a simple predictive model", result.observation)
         self.assertIn("r_squared", result.table.columns)
+        self.assertIn("train_rows", result.table.columns)
+        self.assertIn("test_mae", result.table.columns)
+
+    def test_numeric_string_columns_are_used_by_tools(self):
+        df = pd.DataFrame({"week": ["1", "2", "3", "4"], "sales": ["$10", "$15", "$20", "$25"]})
+        profile = perceive_dataset(df)
+
+        result = execute_tool("dataset_summary", df, profile)
+
+        self.assertIn("sales", set(result.table["column"]))
+
+    def test_skip_messages_use_consistent_format(self):
+        df = pd.DataFrame({"note": ["only text rows", "still only text"]})
+        profile = perceive_dataset(df)
+
+        result = execute_tool("correlation_analysis", df, profile)
+
+        self.assertIn("Skipped because", result.observation)
+        self.assertIn("Next step:", result.observation)
+        self.assertNotIn("Traceback", result.observation)
 
     def test_causal_risk_analysis_adds_guardrail(self):
         df = pd.DataFrame(

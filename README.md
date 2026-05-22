@@ -28,9 +28,10 @@ This maps to course concepts: environment, observation/state, action, policy, to
 - Deeper missing-value diagnostics with affected-row rates, severity labels, and grouped concentration checks.
 - Large CSV row limiting so analysis stays responsive on oversized uploads.
 - Auto header detection for CSV exports with preamble rows before the actual table.
-- Date quality checks for mixed or messy date formats before trend analysis.
-- Text analysis for feedback/comment datasets, including keywords, lexicon sentiment, and topic-style recurring theme groups with example rows.
-- Advanced but bounded statistics: approximate significance checks, simple predictive baseline modeling, and causal-risk auditing that prevents unsupported causal claims.
+- Date quality gating for mixed or messy date formats before trend analysis.
+- Text analysis for feedback/comment datasets, including TF-IDF keywords, lexicon sentiment, and topic-style recurring theme groups with example rows.
+- Advanced but bounded statistics: Bonferroni-adjusted Pearson checks, lightweight ANOVA, train/test predictive baselines, confidence interval labels, and causal-risk auditing that prevents unsupported causal claims.
+- Reliability guardrails for high-cardinality grouping, prompt injection attempts, numeric-looking strings, and unsupported tool requests.
 - Stronger conversation memory so follow-up prompts can reuse the previous goal, previous tools, and prior answer summary.
 - Ambiguous goal detection with dataset-specific clarification suggestions.
 - Stable CSV upload state handling that clears stale results when the file, header setting, or goal changes.
@@ -61,7 +62,7 @@ The app works without an LLM key by using the fallback planner.
 
 If the goal is broad, for example `analyze this data`, the app suggests clearer analysis goals based on the observed dataset columns. The user can click one suggestion, or run the agent directly; in that case the first suggestion is added as planning context and shown in the trace.
 
-For CSV uploads, use `Auto detect header` when a file contains report title rows or notes before the actual table. The app caps analysis rows with `Max analysis rows` and reports when a large file is limited.
+For CSV uploads, use `Auto detect header` when a file contains report title rows or notes before the actual table. The app caps analysis rows internally to keep large files responsive.
 
 ## Optional LLM Provider Configuration
 
@@ -105,7 +106,7 @@ export LLM_MODEL="qwen-plus"
 python -m unittest discover tests
 ```
 
-The Streamlit app also includes an **Evaluation Dashboard**. Click `Run Evaluation Suite` to run the core grading-oriented scenarios with the LLM disabled: text-only data, numeric-only data, messy dates, complex-header CSV, missing values, empty CSV, no-header CSV, safety guardrail, unclear goal, large trend data, topic modeling, statistical testing, predictive modeling, and causal guardrails.
+The Streamlit app also includes an **Evaluation Dashboard**. Click `Run Evaluation Suite` to run the core grading-oriented scenarios with the LLM disabled: text-only data, numeric-only data, messy dates, complex-header CSV, missing values, empty CSV, no-header CSV, safety guardrail, unclear goal, large trend data, topic modeling, statistical testing, predictive modeling, causal guardrails, high-cardinality groups, numeric-string inference, prompt injection, and train/test prediction.
 
 ## Boundary CSV Fixtures
 
@@ -119,6 +120,8 @@ The `data/` folder includes datasets for manual edge-case testing:
 - `edge_empty_header_only.csv`: header-only CSV; should show `Dataset has no rows`.
 - `edge_no_header.csv`: no header row; turn off `First row contains headers` before running.
 - `edge_large_sales.csv`: larger sample for checking load time and chart responsiveness.
+- `edge_high_cardinality.csv`: high-cardinality ID grouping; should skip unreadable group comparison output.
+- `edge_numeric_strings.csv`: currency and percent strings; should infer numeric columns for analysis.
 
 ## Demo Video
 

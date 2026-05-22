@@ -104,7 +104,7 @@ def filter_applicable_steps(steps: list[PlanStep], profile: DatasetProfile) -> l
             continue
         if step.tool_name == "group_comparison" and not (profile.categorical_columns and profile.numeric_columns):
             continue
-        if step.tool_name == "trend_analysis" and not (profile.date_columns and profile.numeric_columns):
+        if step.tool_name == "trend_analysis" and not (_reliable_date_columns(profile) and profile.numeric_columns):
             continue
         if step.tool_name == "date_quality_check" and not profile.date_parse_percent:
             continue
@@ -176,7 +176,7 @@ def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
                 "Which group has the highest average metric.",
             )
         )
-    if profile.date_columns and profile.numeric_columns:
+    if _reliable_date_columns(profile) and profile.numeric_columns:
         candidates.append(
             PlanStep(
                 "trend_analysis",
@@ -242,6 +242,14 @@ def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
     )
 
     return candidates
+
+
+def _reliable_date_columns(profile: DatasetProfile) -> list[str]:
+    return [
+        column
+        for column in profile.date_columns
+        if profile.date_parse_percent.get(column, 0) >= 80
+    ]
 
 
 def _focus_steps(candidates: list[PlanStep], goal: str) -> list[PlanStep]:

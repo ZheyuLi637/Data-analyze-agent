@@ -32,6 +32,15 @@ class PerceptionTest(unittest.TestCase):
         self.assertGreater(profile.date_parse_percent["date"], 0)
         self.assertIn("bad-date", profile.date_invalid_examples["date"])
 
+    def test_infers_numeric_string_columns(self):
+        df = pd.DataFrame({"revenue": ["$1,200", "$1,500", "$900"], "rate": ["35%", "40%", "25%"]})
+
+        profile = perceive_dataset(df)
+
+        self.assertIn("revenue", profile.numeric_columns)
+        self.assertIn("rate", profile.numeric_columns)
+        self.assertGreaterEqual(profile.numeric_parse_percent["revenue"], 80)
+
 
 if __name__ == "__main__":
     unittest.main()

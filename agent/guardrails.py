@@ -18,6 +18,18 @@ UNSAFE_TERMS = (
     "bypass validation",
     "ignore your allowed tools",
     "ignore allowed tools",
+    "ignore previous instructions",
+    "ignore all previous instructions",
+    "reveal system prompt",
+    "show system prompt",
+    "print system prompt",
+    "act as terminal",
+    "act like a terminal",
+    "exfiltrate",
+    "read local files",
+    "read files",
+    "open local files",
+    "system prompt",
 )
 
 
@@ -39,4 +51,3 @@ def guardrail_message(guardrail: dict) -> str:
         "the predefined safe tools. It will not execute arbitrary Python, shell commands, inspect local files, "
         "or bypass tool validation."
     )
-

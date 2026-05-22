@@ -17,7 +17,7 @@ import pandas as pd
 
 from agent.column_intent import select_date_column, select_group_columns, select_metric
 from agent.date_utils import parse_mixed_dates
-from agent.perception import DatasetProfile
+from agent.perception import DatasetProfile, clean_numeric_series
 
 
 @dataclass
@@ -52,7 +52,7 @@ def execute_tool(tool_name: str, df: pd.DataFrame, profile: DatasetProfile, goal
 def dataset_summary(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     numeric = profile.numeric_columns
     if numeric:
-        table = df[numeric].describe().transpose().round(2).reset_index()
+        table = _numeric_frame(df, numeric).describe().transpose().round(2).reset_index()
         table = table.rename(columns={"index": "column"})
         observation = f"Generated summary statistics for {len(numeric)} numeric columns."
     else:
@@ -101,10 +101,12 @@ def correlation_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = 
         return ToolResult(
             "correlation_analysis",
             "Correlation Analysis",
-            "Skipped correlation analysis because fewer than two numeric columns were available.",
+            _skip_message("fewer than two numeric columns were available", "Add at least two numeric fields or choose a text/group analysis."),
         )
 
-    corr = df[numeric].corr(numeric_only=True).round(2)
+    numeric_df = _numeric_frame(df, numeric)
+    numeric_df = _drop_outlier_rows(numeric_df)
+    corr = numeric_df.corr(numeric_only=True).round(2)
     top_pairs = _top_correlations(corr)
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
     heatmap_ax, scatter_ax = axes
@@ -120,7 +122,7 @@ def correlation_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = 
     pair = _parse_pair(top_pairs[0])
     if pair:
         left, right = pair
-        scatter_ax.scatter(df[left], df[right], color="#3659a8", alpha=0.75)
+        scatter_ax.scatter(numeric_df[left], numeric_df[right], color="#3659a8", alpha=0.75)
         scatter_ax.set_title(f"Strongest pair: {left} vs {right}")
         scatter_ax.set_xlabel(left)
         scatter_ax.set_ylabel(right)
@@ -138,7 +140,7 @@ def correlation_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = 
         "correlation_analysis",
         "Correlation Analysis",
         observation,
-        table=corr.reset_index().rename(columns={"index": "column"}),
+        table=_correlation_pair_table(numeric_df),
         figure=fig,
     )
 
@@ -148,21 +150,31 @@ def group_comparison(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") 
         return ToolResult(
             "group_comparison",
             "Group Comparison",
-            "Skipped group comparison because categorical and numeric columns were not both available.",
+            _skip_message("categorical and numeric columns were not both available", "Use summary/correlation for numeric-only data or upload a grouping column."),
         )
 
     metric = select_metric(profile, goal) or profile.numeric_columns[0]
-    categories = select_group_columns(df, profile, goal, max_columns=2) or profile.categorical_columns[:2]
+    categories = _valid_group_columns(df, select_group_columns(df, profile, goal, max_columns=4) or profile.categorical_columns)
+    categories = categories[:2]
+    if not categories:
+        return ToolResult(
+            "group_comparison",
+            "Group Comparison",
+            _skip_message("all candidate group columns have too many unique values", "Use a lower-cardinality category such as region, segment, or product type."),
+        )
+    work = df[categories].copy()
+    work[metric] = clean_numeric_series(df[metric])
     grouped_parts = []
     top_summaries = []
     for category in categories:
         part = (
-            df.groupby(category, dropna=False)[metric]
-            .agg(["count", "mean", "sum"])
+            work.groupby(category, dropna=False)[metric]
+            .agg(["count", "mean", "sum", "std"])
             .round(2)
             .sort_values("mean", ascending=False)
             .reset_index()
         )
+        part = _add_mean_ci(part)
         part.insert(0, "group_column", category)
         part = part.rename(columns={category: "group_value"})
         grouped_parts.append(part)
@@ -174,7 +186,7 @@ def group_comparison(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") 
     if len(categories) == 1:
         axes = [axes]
     for ax, category in zip(axes, categories):
-        part = grouped[grouped["group_column"] == category].sort_values("mean", ascending=True)
+        part = grouped[grouped["group_column"] == category].head(10).sort_values("mean", ascending=True)
         ax.barh(part["group_value"].astype(str), part["mean"], color="#2f6f73")
         ax.set_title(f"Mean {metric} by {category}")
         ax.set_xlabel(f"Mean {metric}")
@@ -193,14 +205,26 @@ def trend_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") ->
         return ToolResult(
             "trend_analysis",
             "Trend Analysis",
-            "Skipped trend analysis because date and numeric columns were not both available.",
+            _skip_message("date and numeric columns were not both available", "Run date quality check or upload a reliable date column with a numeric metric."),
         )
 
     date_column = select_date_column(profile, goal) or profile.date_columns[0]
+    parse_success = profile.date_parse_percent.get(date_column, 0)
+    if parse_success < 80:
+        return ToolResult(
+            "trend_analysis",
+            "Trend Analysis",
+            _skip_message(
+                f"{date_column} has only {parse_success}% date parse success",
+                "Clean date values before trusting trend analysis.",
+            ),
+        )
     primary_metric = select_metric(profile, goal) or profile.numeric_columns[0]
     metrics = [primary_metric] + [column for column in profile.numeric_columns if column != primary_metric][:1]
     metric = metrics[0]
-    work = df[[date_column] + metrics].copy()
+    work = df[[date_column]].copy()
+    for current_metric in metrics:
+        work[current_metric] = clean_numeric_series(df[current_metric])
     parsed_dates = parse_mixed_dates(work[date_column]).parsed
     work = work.loc[parsed_dates.index].copy()
     work[date_column] = parsed_dates
@@ -209,7 +233,7 @@ def trend_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") ->
         return ToolResult(
             "trend_analysis",
             "Trend Analysis",
-            f"Skipped trend analysis because {date_column} could not be parsed into usable dates.",
+            _skip_message(f"{date_column} could not be parsed into usable dates", "Clean date values before rerunning trend analysis."),
         )
     trend = work.sort_values(date_column).groupby(date_column, as_index=False)[metrics].sum()
 
@@ -250,7 +274,7 @@ def date_quality_check(df: pd.DataFrame, profile: DatasetProfile, goal: str = ""
         return ToolResult(
             "date_quality_check",
             "Date Quality Check",
-            "Skipped date quality check because no date-like columns were detected.",
+            _skip_message("no date-like columns were detected", "Add a date/time column or ask for non-time-based analysis."),
         )
 
     rows = []
@@ -282,22 +306,19 @@ def text_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> 
         return ToolResult(
             "text_analysis",
             "Text Analysis",
-            "Skipped text analysis because no substantial text columns were detected.",
+            _skip_message("no substantial text columns were detected", "Use a CSV column with sentence-like feedback, comments, or reviews."),
         )
 
     column = max(text_columns, key=lambda item: item[1])[0]
     texts = df[column].dropna().astype(str)
-    tokens = _text_tokens(" ".join(texts))
-    keyword_counts = pd.Series(tokens).value_counts().head(12)
-    table = keyword_counts.reset_index()
-    table.columns = ["keyword", "count"]
+    table = _tfidf_keywords(texts, top_n=12)
     sentiment = _sentiment_counts(texts)
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4))
     keyword_ax, sentiment_ax = axes
-    keyword_ax.barh(table["keyword"][::-1], table["count"][::-1], color="#5b7f95")
-    keyword_ax.set_title(f"Top keywords in {column}")
-    keyword_ax.set_xlabel("Count")
+    keyword_ax.barh(table["keyword"][::-1], table["tfidf_score"][::-1], color="#5b7f95")
+    keyword_ax.set_title(f"Top TF-IDF keywords in {column}")
+    keyword_ax.set_xlabel("TF-IDF score")
     sentiment_ax.bar(sentiment.keys(), sentiment.values(), color=["#2f6f73", "#b9a44c", "#b4554b"])
     sentiment_ax.set_title("Lexicon sentiment")
     sentiment_ax.set_ylabel("Rows")
@@ -307,7 +328,7 @@ def text_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> 
     top_keywords = ", ".join(table["keyword"].head(5).tolist())
     observation = (
         f"Analyzed text column {column}; average cleaned length is {avg_words} words per row. "
-        f"Top keywords: {top_keywords}. Chart explanation: the keyword chart surfaces repeated themes, "
+        f"Top TF-IDF keywords: {top_keywords}. Chart explanation: the keyword chart surfaces distinctive terms, "
         "and the sentiment chart gives a lightweight positive/neutral/negative quality signal."
     )
     return ToolResult("text_analysis", "Text Analysis", observation, table=table, figure=fig)
@@ -319,7 +340,7 @@ def topic_modeling(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") ->
         return ToolResult(
             "topic_modeling",
             "Topic Modeling",
-            "Skipped topic modeling because no substantial text columns were detected.",
+            _skip_message("no substantial text columns were detected", "Use a CSV column with sentence-like feedback, comments, or reviews."),
         )
 
     column = max(text_columns, key=lambda item: item[1])[0]
@@ -330,7 +351,7 @@ def topic_modeling(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") ->
         return ToolResult(
             "topic_modeling",
             "Topic Modeling",
-            f"Skipped topic modeling because {column} did not contain enough repeated terms.",
+            _skip_message(f"{column} did not contain enough repeated terms", "Collect more rows or use keyword analysis instead."),
         )
 
     fig, ax = plt.subplots(figsize=(8, 4.2))
@@ -352,16 +373,42 @@ def topic_modeling(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") ->
 def statistical_testing(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") -> ToolResult:
     if profile.categorical_columns and profile.numeric_columns:
         metric = select_metric(profile, goal) or profile.numeric_columns[0]
-        group_columns = select_group_columns(df, profile, goal, max_columns=1) or profile.categorical_columns[:1]
+        group_columns = _valid_group_columns(df, select_group_columns(df, profile, goal, max_columns=4) or profile.categorical_columns)
+        if not group_columns:
+            return ToolResult(
+                "statistical_testing",
+                "Statistical Testing",
+                _skip_message("all candidate group columns have too many unique values", "Use a lower-cardinality category for group testing."),
+            )
         group_column = group_columns[0]
         grouped = []
         for value, values in df.groupby(group_column, dropna=False)[metric]:
-            clean_values = pd.to_numeric(values, errors="coerce").dropna()
+            clean_values = clean_numeric_series(values).dropna()
             if len(clean_values) < 2:
                 continue
             grouped.append((value, clean_values))
         grouped.sort(key=lambda item: float(item[1].mean()), reverse=True)
-        if len(grouped) >= 2:
+        if len(grouped) >= 3:
+            result = _anova_test(grouped)
+            table = pd.DataFrame(
+                [
+                    {
+                        "test": "One-way ANOVA",
+                        "metric": metric,
+                        "group_column": group_column,
+                        "groups": len(grouped),
+                        "statistic": result["statistic"],
+                        "approx_p_value": result["approx_p_value"],
+                        "interpretation": _significance_label(result["approx_p_value"]),
+                    }
+                ]
+            )
+            observation = (
+                f"Ran ANOVA for {metric} by {group_column} across {len(grouped)} groups; F={result['statistic']:.2f} "
+                f"with approximate p-value {result['approx_p_value']:.3f}. Use this as association evidence, not causality."
+            )
+            return ToolResult("statistical_testing", "Statistical Testing", observation, table=table)
+        if len(grouped) == 2:
             left_name, left_values = grouped[0]
             right_name, right_values = grouped[-1]
             result = _welch_test(left_values, right_values)
@@ -390,7 +437,7 @@ def statistical_testing(df: pd.DataFrame, profile: DatasetProfile, goal: str = "
     if len(profile.numeric_columns) >= 2:
         left, right = _strongest_numeric_pair(df, profile)
         if left and right:
-            work = df[[left, right]].apply(pd.to_numeric, errors="coerce").dropna()
+            work = _numeric_frame(df, [left, right]).dropna()
             if len(work) >= 3:
                 r = float(work[left].corr(work[right]))
                 p_value = _correlation_p_value(r, len(work))
@@ -403,6 +450,8 @@ def statistical_testing(df: pd.DataFrame, profile: DatasetProfile, goal: str = "
                             "n": len(work),
                             "statistic": round(r, 3),
                             "approx_p_value": p_value,
+                            "bonferroni_p_value": p_value,
+                            "significant_after_bonferroni": p_value < 0.05,
                             "interpretation": _significance_label(p_value),
                         }
                     ]
@@ -416,7 +465,7 @@ def statistical_testing(df: pd.DataFrame, profile: DatasetProfile, goal: str = "
     return ToolResult(
         "statistical_testing",
         "Statistical Testing",
-        "Skipped statistical testing because the dataset did not contain enough comparable numeric observations.",
+        _skip_message("the dataset did not contain enough comparable numeric observations", "Add more numeric rows or a lower-cardinality group column."),
     )
 
 
@@ -425,39 +474,46 @@ def predictive_modeling(df: pd.DataFrame, profile: DatasetProfile, goal: str = "
         return ToolResult(
             "predictive_modeling",
             "Predictive Modeling",
-            "Skipped predictive modeling because no numeric target column was detected.",
+            _skip_message("no numeric target column was detected", "Add a numeric target such as sales, profit, score, or amount."),
         )
 
     target = select_metric(profile, goal) or profile.numeric_columns[0]
-    feature_columns = [column for column in profile.numeric_columns if column != target]
+    feature_columns = _candidate_prediction_features(df, profile, target)
     if not feature_columns and profile.date_columns:
         date_column = select_date_column(profile, goal) or profile.date_columns[0]
         parsed = parse_mixed_dates(df[date_column]).parsed
         time_index = parsed.apply(lambda value: value.toordinal() if pd.notna(value) else np.nan)
-        work = pd.DataFrame({"_time_index": time_index, target: df[target]}).dropna()
+        work = pd.DataFrame({"_time_index": time_index, target: clean_numeric_series(df[target])}).dropna()
         feature_columns = ["_time_index"]
     else:
-        work = df[[target] + feature_columns].apply(pd.to_numeric, errors="coerce").dropna()
+        work = _numeric_frame(df, [target] + feature_columns).dropna()
 
     if len(feature_columns) == 0 or len(work) < 3:
         return ToolResult(
             "predictive_modeling",
             "Predictive Modeling",
-            f"Skipped predictive modeling because {target} did not have enough usable feature rows.",
+            _skip_message(f"{target} did not have enough usable feature rows", "Add at least one usable numeric feature with three or more complete rows."),
         )
 
-    feature = _best_prediction_feature(work, target, feature_columns)
+    feature, feature_reason = _best_prediction_feature(work, target, feature_columns)
     model = _fit_simple_linear_model(work[feature], work[target])
+    validation = _train_test_metrics(work, target, feature)
     table = pd.DataFrame(
         [
             {
                 "target": target,
                 "feature": feature,
+                "feature_reason": feature_reason,
                 "rows_used": len(work),
                 "slope": model["slope"],
                 "intercept": model["intercept"],
                 "r_squared": model["r_squared"],
                 "mae": model["mae"],
+                "train_rows": validation["train_rows"],
+                "test_rows": validation["test_rows"],
+                "test_mae": validation["test_mae"],
+                "test_r_squared": validation["test_r_squared"],
+                "validation_note": validation["validation_note"],
                 "next_feature_value": model["next_feature_value"],
                 "next_prediction": model["next_prediction"],
             }
@@ -477,7 +533,7 @@ def predictive_modeling(df: pd.DataFrame, profile: DatasetProfile, goal: str = "
 
     observation = (
         f"Built a simple predictive model for {target} using {feature}; R-squared={model['r_squared']:.2f}, "
-        f"MAE={model['mae']:.2f}, and next-step prediction is {model['next_prediction']:.2f}. "
+        f"MAE={model['mae']:.2f}, test MAE={validation['test_mae']}, and next-step prediction is {model['next_prediction']:.2f}. "
         "This is a baseline forecast for planning, not a production model."
     )
     return ToolResult("predictive_modeling", "Predictive Modeling", observation, table=table, figure=fig)
@@ -488,7 +544,7 @@ def causal_risk_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = 
         return ToolResult(
             "causal_risk_analysis",
             "Causal Risk Analysis",
-            "Skipped causal risk analysis because no numeric outcome column was detected.",
+            _skip_message("no numeric outcome column was detected", "Add a numeric outcome before auditing causal risk."),
         )
 
     outcome = select_metric(profile, goal) or profile.numeric_columns[0]
@@ -509,7 +565,7 @@ def causal_risk_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = 
                 }
             )
     for feature in [column for column in profile.numeric_columns if column != outcome][:3]:
-        work = df[[feature, outcome]].apply(pd.to_numeric, errors="coerce").dropna()
+        work = _numeric_frame(df, [feature, outcome]).dropna()
         if len(work) < 3:
             continue
         rows.append(
@@ -527,7 +583,7 @@ def causal_risk_analysis(df: pd.DataFrame, profile: DatasetProfile, goal: str = 
         return ToolResult(
             "causal_risk_analysis",
             "Causal Risk Analysis",
-            "Skipped causal risk analysis because no comparable driver/outcome relationship was available.",
+            _skip_message("no comparable driver/outcome relationship was available", "Add a driver column and numeric outcome with enough complete rows."),
         )
 
     possible_confounders = [column for column in profile.columns if column != outcome][:5]
@@ -543,11 +599,12 @@ def chart_generation(df: pd.DataFrame, profile: DatasetProfile, goal: str = "") 
     if profile.numeric_columns:
         metric = select_metric(profile, goal) or profile.numeric_columns[0]
         values = df[metric].dropna()
+        values = clean_numeric_series(df[metric]).dropna()
         if values.empty:
             return ToolResult(
                 "chart_generation",
                 "Chart Generation",
-                f"Skipped chart generation because {metric} has no non-missing values.",
+                _skip_message(f"{metric} has no non-missing values", "Choose another metric or clean missing numeric values."),
             )
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
         hist_ax, box_ax = axes
@@ -611,6 +668,46 @@ STOPWORDS = {
 }
 POSITIVE_WORDS = {"smooth", "easy", "useful", "quickly", "solved", "clear", "good", "fast", "great", "positive"}
 NEGATIVE_WORDS = {"slow", "confusing", "issue", "problem", "bad", "missing", "negative", "hard", "error", "delay"}
+MAX_GROUP_CARDINALITY = 30
+
+
+def _skip_message(reason: str, next_step: str) -> str:
+    return f"Skipped because {reason}. Next step: {next_step}"
+
+
+def _numeric_frame(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    return pd.DataFrame({column: clean_numeric_series(df[column]) for column in columns if column in df.columns})
+
+
+def _drop_outlier_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    mask = pd.Series(True, index=frame.index)
+    for column in frame.columns:
+        values = frame[column].dropna()
+        if len(values) < 4:
+            continue
+        q1 = values.quantile(0.25)
+        q3 = values.quantile(0.75)
+        iqr = q3 - q1
+        if iqr == 0:
+            continue
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+        mask &= frame[column].isna() | frame[column].between(lower, upper)
+    filtered = frame.loc[mask]
+    return filtered if len(filtered.dropna(how="all")) >= 3 else frame
+
+
+def _valid_group_columns(df: pd.DataFrame, columns: list[str]) -> list[str]:
+    row_count = max(len(df), 1)
+    threshold = min(MAX_GROUP_CARDINALITY, max(2, int(row_count * 0.5)))
+    valid = []
+    for column in columns:
+        cardinality = int(df[column].nunique(dropna=True))
+        if 1 < cardinality <= threshold:
+            valid.append(column)
+    return valid
 
 
 def _text_columns(df: pd.DataFrame, profile: DatasetProfile) -> list[tuple[str, float]]:
@@ -632,6 +729,28 @@ def _text_tokens(text: str) -> list[str]:
         for token in re.findall(r"[a-zA-Z]{3,}", text.lower())
         if token not in STOPWORDS
     ]
+
+
+def _tfidf_keywords(texts: pd.Series, top_n: int = 12) -> pd.DataFrame:
+    documents = [_text_tokens(text) for text in texts]
+    document_count = max(len(documents), 1)
+    term_frequency = Counter(token for document in documents for token in document)
+    document_frequency = Counter(token for document in documents for token in set(document))
+    rows = []
+    for token, count in term_frequency.items():
+        df_count = document_frequency[token]
+        idf = math.log((1 + document_count) / (1 + df_count)) + 1
+        rows.append(
+            {
+                "keyword": token,
+                "tfidf_score": round(float(count * idf), 3),
+                "document_count": int(df_count),
+            }
+        )
+    table = pd.DataFrame(rows)
+    if table.empty:
+        return pd.DataFrame(columns=["keyword", "tfidf_score", "document_count"])
+    return table.sort_values(["tfidf_score", "document_count"], ascending=False).head(top_n).reset_index(drop=True)
 
 
 def _cooccurrence_topics(texts: pd.Series, max_topics: int = 5) -> list[dict]:
@@ -756,6 +875,35 @@ def _top_correlations(corr: pd.DataFrame) -> list[str]:
     return [pair for _, pair in pairs[:3]] or ["n/a"]
 
 
+def _correlation_pair_table(frame: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    columns = list(frame.columns)
+    pair_count = max(1, len(columns) * (len(columns) - 1) // 2)
+    for index, left in enumerate(columns):
+        for right in columns[index + 1 :]:
+            work = frame[[left, right]].dropna()
+            if len(work) < 3:
+                continue
+            r = float(work[left].corr(work[right]))
+            p_value = _correlation_p_value(r, len(work))
+            adjusted = round(min(1.0, p_value * pair_count), 4)
+            rows.append(
+                {
+                    "left": left,
+                    "right": right,
+                    "n": len(work),
+                    "pearson_r": round(r, 3),
+                    "approx_p_value": p_value,
+                    "bonferroni_p_value": adjusted,
+                    "significant_after_bonferroni": adjusted < 0.05,
+                }
+            )
+    table = pd.DataFrame(rows)
+    if table.empty:
+        return pd.DataFrame(columns=["left", "right", "n", "pearson_r", "approx_p_value", "bonferroni_p_value", "significant_after_bonferroni"])
+    return table.sort_values("pearson_r", key=lambda values: values.abs(), ascending=False).reset_index(drop=True)
+
+
 def _parse_pair(pair_text: str) -> tuple[str, str] | None:
     if " vs " not in pair_text:
         return None
@@ -767,7 +915,7 @@ def _parse_pair(pair_text: str) -> tuple[str, str] | None:
 
 
 def _strongest_numeric_pair(df: pd.DataFrame, profile: DatasetProfile) -> tuple[str | None, str | None]:
-    corr = df[profile.numeric_columns].corr(numeric_only=True)
+    corr = _numeric_frame(df, profile.numeric_columns).corr(numeric_only=True)
     best: tuple[float, str | None, str | None] = (0.0, None, None)
     for index, left in enumerate(profile.numeric_columns):
         for right in profile.numeric_columns[index + 1 :]:
@@ -794,6 +942,21 @@ def _welch_test(left: pd.Series, right: pd.Series) -> dict[str, float]:
     }
 
 
+def _anova_test(grouped: list[tuple[object, pd.Series]]) -> dict[str, float]:
+    values = [series.astype(float) for _, series in grouped if len(series) >= 2]
+    all_values = pd.concat(values, ignore_index=True)
+    grand_mean = float(all_values.mean())
+    between = sum(len(series) * (float(series.mean()) - grand_mean) ** 2 for series in values)
+    within = sum(float(((series - float(series.mean())) ** 2).sum()) for series in values)
+    df_between = max(len(values) - 1, 1)
+    df_within = max(len(all_values) - len(values), 1)
+    ms_between = between / df_between
+    ms_within = within / df_within if within > 0 else 1e-9
+    statistic = ms_between / ms_within
+    approx_p = round(max(0.0, min(1.0, math.exp(-0.5 * statistic * df_between))), 4)
+    return {"statistic": round(float(statistic), 3), "approx_p_value": approx_p}
+
+
 def _correlation_p_value(r: float, n: int) -> float:
     if n <= 2 or abs(r) >= 1:
         return 0.0 if abs(r) >= 1 else 1.0
@@ -818,7 +981,23 @@ def _significance_label(p_value: float) -> str:
     return "not statistically notable"
 
 
-def _best_prediction_feature(work: pd.DataFrame, target: str, feature_columns: list[str]) -> str:
+def _candidate_prediction_features(df: pd.DataFrame, profile: DatasetProfile, target: str) -> list[str]:
+    candidates = []
+    for column in profile.numeric_columns:
+        if column == target:
+            continue
+        missing_percent = profile.missing_percent.get(column, 0)
+        unique_count = int(df[column].nunique(dropna=True))
+        name = column.lower()
+        if missing_percent > 40:
+            continue
+        if unique_count >= max(10, int(len(df) * 0.9)) and any(token in name for token in ("id", "code", "zip", "postal")):
+            continue
+        candidates.append(column)
+    return candidates
+
+
+def _best_prediction_feature(work: pd.DataFrame, target: str, feature_columns: list[str]) -> tuple[str, str]:
     best_feature = feature_columns[0]
     best_score = -1.0
     for feature in feature_columns:
@@ -827,7 +1006,7 @@ def _best_prediction_feature(work: pd.DataFrame, target: str, feature_columns: l
         if score > best_score:
             best_feature = feature
             best_score = score
-    return best_feature
+    return best_feature, f"selected highest absolute correlation among usable low-missing numeric features ({best_score:.2f})"
 
 
 def _fit_simple_linear_model(feature: pd.Series, target: pd.Series) -> dict[str, float]:
@@ -853,3 +1032,43 @@ def _fit_simple_linear_model(feature: pd.Series, target: pd.Series) -> dict[str,
         "next_feature_value": round(next_feature_value, 4),
         "next_prediction": round(next_prediction, 4),
     }
+
+
+def _train_test_metrics(work: pd.DataFrame, target: str, feature: str) -> dict:
+    if len(work) < 8:
+        return {
+            "train_rows": len(work),
+            "test_rows": 0,
+            "test_mae": "n/a",
+            "test_r_squared": "n/a",
+            "validation_note": "insufficient rows for train/test; fitted baseline only",
+        }
+    ordered = work[[feature, target]].dropna().reset_index(drop=True)
+    split_index = max(1, int(len(ordered) * 0.8))
+    train = ordered.iloc[:split_index]
+    test = ordered.iloc[split_index:]
+    model = _fit_simple_linear_model(train[feature], train[target])
+    predictions = model["intercept"] + model["slope"] * test[feature].astype(float).to_numpy()
+    actual = test[target].astype(float).to_numpy()
+    residuals = actual - predictions
+    total_variance = float(np.sum((actual - actual.mean()) ** 2))
+    residual_variance = float(np.sum(residuals**2))
+    r_squared = 0.0 if total_variance == 0 else 1 - residual_variance / total_variance
+    return {
+        "train_rows": len(train),
+        "test_rows": len(test),
+        "test_mae": round(float(np.mean(np.abs(residuals))), 4),
+        "test_r_squared": round(float(r_squared), 4),
+        "validation_note": "80/20 train/test split in original row order",
+    }
+
+
+def _add_mean_ci(table: pd.DataFrame) -> pd.DataFrame:
+    table = table.copy()
+    std_error = table.apply(
+        lambda row: 0.0 if row["count"] <= 1 or pd.isna(row.get("std")) else float(row["std"]) / math.sqrt(float(row["count"])),
+        axis=1,
+    )
+    table["ci_low"] = (table["mean"] - 1.96 * std_error).round(2)
+    table["ci_high"] = (table["mean"] + 1.96 * std_error).round(2)
+    return table
