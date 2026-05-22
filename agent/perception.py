@@ -16,6 +16,10 @@ class DatasetProfile:
     numeric_columns: list[str]
     categorical_columns: list[str]
     date_columns: list[str]
+    text_columns: list[str]
+    inferred_numeric_columns: list[str]
+    categorical_cardinality: dict[str, int]
+    generic_column_names: bool
     missing_values: dict[str, int]
     missing_percent: dict[str, float]
     numeric_parse_percent: dict[str, float]
@@ -37,6 +41,11 @@ def perceive_dataset(df: pd.DataFrame) -> DatasetProfile:
         for column in df.select_dtypes(include=["object", "category", "bool"]).columns
         if column not in date_columns and column not in numeric_columns
     ]
+    categorical_cardinality = {
+        column: int(df[column].nunique(dropna=True))
+        for column in categorical_columns
+    }
+    text_columns = _detect_text_columns(df, categorical_columns)
     missing_values = df.isna().sum().astype(int).to_dict()
     row_count = int(len(df))
 
@@ -55,6 +64,10 @@ def perceive_dataset(df: pd.DataFrame) -> DatasetProfile:
         numeric_columns=numeric_columns,
         categorical_columns=categorical_columns,
         date_columns=date_columns,
+        text_columns=text_columns,
+        inferred_numeric_columns=inferred_numeric,
+        categorical_cardinality=categorical_cardinality,
+        generic_column_names=_has_generic_column_names(df),
         missing_values=missing_values,
         missing_percent=missing_percent,
         numeric_parse_percent=numeric_parse_percent,
@@ -94,6 +107,25 @@ def _detect_numeric_strings(df: pd.DataFrame, existing_numeric: list[str]) -> tu
             inferred.append(column)
             parse_percent[column] = success_percent
     return inferred, parse_percent
+
+
+def _detect_text_columns(df: pd.DataFrame, categorical_columns: list[str]) -> list[str]:
+    text_columns: list[str] = []
+    for column in categorical_columns:
+        texts = df[column].dropna().astype(str)
+        if texts.empty:
+            continue
+        avg_length = float(texts.str.len().mean())
+        avg_words = float(texts.str.split().apply(len).mean())
+        if avg_length >= 20 or avg_words >= 4:
+            text_columns.append(column)
+    return text_columns
+
+
+def _has_generic_column_names(df: pd.DataFrame) -> bool:
+    if len(df.columns) == 0:
+        return False
+    return all(str(column).startswith("column_") for column in df.columns)
 
 
 def _detect_date_columns(df: pd.DataFrame) -> tuple[list[str], dict[str, float], dict[str, list[str]]]:

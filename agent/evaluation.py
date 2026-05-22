@@ -162,7 +162,7 @@ SCENARIOS = [
         name="High-cardinality group",
         csv_path="data/edge_high_cardinality.csv",
         goal="Compare sales by user_id.",
-        required_tools={"group_comparison"},
+        expected_tools={"dataset_summary"},
     ),
     EvaluationScenario(
         name="Numeric string inference",

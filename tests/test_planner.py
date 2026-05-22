@@ -141,6 +141,33 @@ class PlannerTest(unittest.TestCase):
 
         self.assertIn("date_quality_check", tools)
 
+    def test_fallback_avoids_group_and_text_for_high_cardinality_id(self):
+        df = pd.DataFrame({"user_id": [f"user_{index}" for index in range(40)], "sales": range(40)})
+        profile = perceive_dataset(df)
+
+        tools = [step.tool_name for step in fallback_plan(profile, goal="Compare sales by user_id")]
+
+        self.assertNotIn("group_comparison", tools)
+        self.assertNotIn("text_analysis", tools)
+        self.assertNotIn("topic_modeling", tools)
+
+    def test_fallback_avoids_group_and_text_for_generic_no_header_columns(self):
+        df = pd.DataFrame(
+            {
+                "column_1": ["2026-01-01", "2026-01-08", "2026-01-15"],
+                "column_2": ["North", "South", "East"],
+                "column_3": [100, 120, 130],
+                "column_4": [20, 25, 30],
+            }
+        )
+        profile = perceive_dataset(df)
+
+        tools = [step.tool_name for step in fallback_plan(profile, goal="Analyze this data")]
+
+        self.assertNotIn("group_comparison", tools)
+        self.assertNotIn("text_analysis", tools)
+        self.assertNotIn("topic_modeling", tools)
+
 
 if __name__ == "__main__":
     unittest.main()

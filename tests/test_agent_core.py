@@ -203,6 +203,43 @@ class AgentCoreTest(unittest.TestCase):
         self.assertIn("Built a simple predictive model", run.final_answer)
         self.assertIn("simple local baseline", run.final_answer)
 
+    def test_small_numeric_model_warns_about_overfit_risk(self):
+        df = pd.DataFrame(
+            {
+                "sales": [1200, 1500, 900, 1800, 2100, 1300, 1700, 2400],
+                "profit": [310, 420, 120, 520, 610, 250, 460, 700],
+                "discount": [0.05, 0.04, 0.15, 0.03, 0.02, 0.12, 0.06, 0.01],
+            }
+        )
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "Forecast future sales", initial_tool_scores())
+
+        self.assertIn("small", run.final_answer.lower())
+        self.assertIn("overfit", run.final_answer.lower())
+
+    def test_numeric_string_summary_mentions_conversion(self):
+        df = pd.DataFrame({"week": range(1, 11), "sales": ["$1,000", "$1,100", "$1,200", "$1,300", "$1,400", "$1,500", "$1,600", "$1,700", "$1,800", "$1,900"]})
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "Forecast future sales", initial_tool_scores())
+
+        self.assertIn("Numeric-looking strings were converted", run.final_answer)
+
+    def test_generic_headers_keep_answer_broad(self):
+        df = pd.DataFrame({"column_1": ["North", "South"], "column_2": [100, 120], "column_3": [20, 30]})
+        disabled_client = OpenAICompatibleClient(
+            LLMConfig(enabled=False, api_key="", base_url="", model="")
+        )
+
+        run = DataAnalysisAgent(disabled_client).run(df, "Analyze this data", initial_tool_scores())
+
+        self.assertIn("Column names look auto-generated", run.final_answer)
+
 
 if __name__ == "__main__":
     unittest.main()

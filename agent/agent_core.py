@@ -305,6 +305,8 @@ def _caveats(
         caveats.append("LLM explanation was unavailable, so this response uses the local grounded summarizer.")
     if any(count > 0 for count in profile.missing_values.values()):
         caveats.append("Missing values may affect reliability.")
+    if 0 < profile.row_count < 8:
+        caveats.append(f"Only {profile.row_count} rows were analyzed, so findings should be treated as directional.")
     if any(token in goal.lower() for token in ("trend", "over time", "date", "time")) and not profile.date_columns:
         caveats.append("The date column was not reliably detected, so trend analysis should wait until date cleanup.")
     weak_date_columns = [
@@ -316,12 +318,20 @@ def _caveats(
         caveats.append(f"Date cleanup is recommended for: {', '.join(weak_date_columns)}.")
     if not profile.numeric_columns:
         caveats.append("No numeric columns were detected.")
+    if profile.generic_column_names:
+        caveats.append("Column names look auto-generated, so the agent keeps interpretation broad until headers are clarified.")
+    if profile.inferred_numeric_columns:
+        caveats.append(f"Numeric-looking strings were converted for analysis: {', '.join(profile.inferred_numeric_columns)}.")
     if any(observation.startswith("Audited causal risk") for observation in observations):
         caveats.append("Causal findings are hypothesis-generating only because the data is observational.")
     if any(observation.startswith("Built a simple predictive model") for observation in observations):
         caveats.append("The prediction is a simple local baseline, not a validated production forecast.")
+        if profile.row_count < 20:
+            caveats.append("The sample is small, so model metrics are demo-level and may overfit.")
     if any(observation.startswith("Ran statistical testing") and "approximate p-value" in observation for observation in observations):
         caveats.append("Statistical p-values use a lightweight normal approximation because the prototype avoids heavy dependencies.")
+        if profile.row_count < 20:
+            caveats.append("Small samples and highly related variables can make statistical signals look stronger than they are.")
     if any(observation.startswith("Skipped ") for observation in observations):
         caveats.append("At least one requested analysis was skipped because the dataset did not support it.")
     return caveats

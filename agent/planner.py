@@ -102,15 +102,15 @@ def filter_applicable_steps(steps: list[PlanStep], profile: DatasetProfile) -> l
     for step in steps:
         if step.tool_name == "correlation_analysis" and len(profile.numeric_columns) < 2:
             continue
-        if step.tool_name == "group_comparison" and not (profile.categorical_columns and profile.numeric_columns):
+        if step.tool_name == "group_comparison" and not (_usable_group_columns(profile) and profile.numeric_columns):
             continue
         if step.tool_name == "trend_analysis" and not (_reliable_date_columns(profile) and profile.numeric_columns):
             continue
         if step.tool_name == "date_quality_check" and not profile.date_parse_percent:
             continue
-        if step.tool_name == "text_analysis" and not profile.categorical_columns:
+        if step.tool_name == "text_analysis" and not profile.text_columns:
             continue
-        if step.tool_name == "topic_modeling" and not profile.categorical_columns:
+        if step.tool_name == "topic_modeling" and not profile.text_columns:
             continue
         if step.tool_name == "statistical_testing" and not (
             len(profile.numeric_columns) >= 2 or (profile.categorical_columns and profile.numeric_columns)
@@ -138,9 +138,7 @@ def fallback_plan(
     if focused:
         return _deduplicate_steps(focused)[:MAX_PLAN_STEPS]
 
-    head = candidates[:1]
-    tail = sorted(candidates[1:], key=lambda step: scores.get(step.tool_name, 1.0), reverse=True)
-    return _deduplicate_steps(head + tail)[:MAX_PLAN_STEPS]
+    return _deduplicate_steps(_default_steps(candidates, scores))[:MAX_PLAN_STEPS]
 
 
 def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
@@ -168,7 +166,7 @@ def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
                 "Strong positive or negative relationships between numeric fields.",
             )
         )
-    if profile.categorical_columns and profile.numeric_columns:
+    if _usable_group_columns(profile) and profile.numeric_columns:
         candidates.append(
             PlanStep(
                 "group_comparison",
@@ -192,7 +190,7 @@ def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
                 "Whether time-based analysis is trustworthy.",
             )
         )
-    if profile.categorical_columns:
+    if profile.text_columns:
         candidates.append(
             PlanStep(
                 "text_analysis",
@@ -208,7 +206,7 @@ def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
             )
         )
 
-    if len(profile.numeric_columns) >= 2 or (profile.categorical_columns and profile.numeric_columns):
+    if len(profile.numeric_columns) >= 2 or (_usable_group_columns(profile) and profile.numeric_columns):
         candidates.append(
             PlanStep(
                 "statistical_testing",
@@ -252,6 +250,22 @@ def _reliable_date_columns(profile: DatasetProfile) -> list[str]:
     ]
 
 
+def _usable_group_columns(profile: DatasetProfile) -> list[str]:
+    row_count = max(profile.row_count, 1)
+    threshold = min(30, max(2, int(row_count * 0.5)))
+    return [
+        column
+        for column in profile.categorical_columns
+        if 1 < profile.categorical_cardinality.get(column, 0) <= threshold
+        and not (profile.generic_column_names and not _semantic_group_column(column))
+    ]
+
+
+def _semantic_group_column(column: str) -> bool:
+    tokens = set(re.split(r"[^a-zA-Z0-9]+", column.lower()))
+    return bool(tokens & {"region", "category", "segment", "product", "customer", "group", "type", "channel", "market"})
+
+
 def _focus_steps(candidates: list[PlanStep], goal: str) -> list[PlanStep]:
     lowered = goal.lower()
     by_tool = {step.tool_name: step for step in candidates}
@@ -288,8 +302,9 @@ def _focus_steps(candidates: list[PlanStep], goal: str) -> list[PlanStep]:
         add("trend_analysis")
         add("chart_generation")
     elif _goal_has_any(lowered, ("region", "category", "segment", "group", "compare", "weakest", "strongest")):
-        add("group_comparison")
-        add("chart_generation")
+        if "group_comparison" in by_tool:
+            add("group_comparison")
+            add("chart_generation")
     elif _goal_has_any(lowered, ("correlation", "relationship", "discount", "profit", "risk", "risky")):
         add("correlation_analysis")
         add("group_comparison")
@@ -297,6 +312,25 @@ def _focus_steps(candidates: list[PlanStep], goal: str) -> list[PlanStep]:
         return []
 
     return selected
+
+
+def _default_steps(candidates: list[PlanStep], scores: dict[str, float]) -> list[PlanStep]:
+    by_tool = {step.tool_name: step for step in candidates}
+    preferred_order = [
+        "dataset_summary",
+        "missing_value_check",
+        "correlation_analysis",
+        "group_comparison",
+        "trend_analysis",
+        "date_quality_check",
+        "text_analysis",
+        "topic_modeling",
+        "chart_generation",
+    ]
+    selected = [by_tool[tool] for tool in preferred_order if tool in by_tool]
+    head = selected[:1]
+    tail = sorted(selected[1:], key=lambda step: scores.get(step.tool_name, 1.0), reverse=True)
+    return head + tail
 
 
 def _goal_has_any(goal: str, tokens: tuple[str, ...]) -> bool:
