@@ -97,48 +97,6 @@ def inject_styles() -> None:
             color: var(--title);
             letter-spacing: 0;
         }
-        .top-nav {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 1rem;
-            margin: 0 0 1.1rem 0;
-            padding: 0.7rem 0.85rem;
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.92);
-            box-shadow: var(--shadow-soft);
-        }
-        .brand-lockup {
-            display: flex;
-            align-items: center;
-            gap: 0.55rem;
-            color: var(--title);
-            font-weight: 750;
-            font-size: 0.95rem;
-        }
-        .brand-dot {
-            width: 0.68rem;
-            height: 0.68rem;
-            border-radius: 3px;
-            background: var(--accent);
-            box-shadow: 0 0 0 3px var(--accent-soft);
-        }
-        .nav-links {
-            display: flex;
-            align-items: center;
-            gap: 0.35rem;
-            flex-wrap: wrap;
-        }
-        .nav-chip {
-            padding: 0.25rem 0.56rem;
-            border: 1px solid var(--line-soft);
-            border-radius: 999px;
-            background: #F6F8FA;
-            color: var(--muted);
-            font-size: 0.75rem;
-            font-weight: 650;
-        }
         .hero {
             position: relative;
             overflow: hidden;
@@ -199,13 +157,6 @@ def inject_styles() -> None:
             font-size: 0.9rem;
             margin-top: 0.55rem;
         }
-        .input-shell {
-            background: #FFFFFF;
-            border: 1px solid var(--line);
-            border-radius: 14px;
-            padding: 0.75rem 1.05rem 1rem 1.05rem;
-            box-shadow: var(--shadow);
-        }
         .window-bar {
             display: flex;
             align-items: center;
@@ -247,14 +198,6 @@ def inject_styles() -> None:
             border-radius: 999px;
             background: var(--success);
             box-shadow: 0 0 0 3px #DAFBE1;
-        }
-        .context-card {
-            background: #FFFFFF;
-            border: 1px solid var(--line);
-            border-radius: 14px;
-            padding: 1rem;
-            min-height: 100%;
-            box-shadow: var(--shadow-soft);
         }
         div[data-testid="stVerticalBlockBorderWrapper"] {
             background: #FFFFFF;
@@ -322,12 +265,6 @@ def inject_styles() -> None:
         .stProgress > div > div > div > div {
             background: var(--accent);
         }
-        @media (max-width: 900px) {
-            .top-nav {
-                align-items: flex-start;
-                flex-direction: column;
-            }
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -341,15 +278,6 @@ def section_label(text: str) -> None:
 def render_hero() -> None:
     st.markdown(
         """
-        <div class="top-nav">
-            <div class="brand-lockup"><span class="brand-dot"></span><span>COMPSCI 767 Data Agent</span></div>
-            <div class="nav-links">
-                <span class="nav-chip">Dataset</span>
-                <span class="nav-chip">Planner</span>
-                <span class="nav-chip">Tool Trace</span>
-                <span class="nav-chip">Evaluation</span>
-            </div>
-        </div>
         <div class="hero">
             <div class="eyebrow">Professional AI analysis prototype</div>
             <h1>Data Insight Agent</h1>
@@ -409,36 +337,34 @@ with st.sidebar:
     with st.expander("Feedback tool scores", expanded=False):
         st.json(st.session_state.tool_scores)
 
-section_label("Task Configuration")
 task_col, context_col = st.columns([2.1, 1])
 with task_col:
-    st.markdown('<div class="input-shell">', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="window-bar">
-            <div class="window-title">Agent request</div>
-            <div class="window-status">Ready</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown("### Ask the agent")
-    goal = st.text_area(
-        "Agent goal",
-        height=124,
-        key="goal_text",
-        label_visibility="collapsed",
-        placeholder="Example: Compare profit by customer segment and explain the strongest group.",
-    )
-    st.markdown(
-        '<div class="soft-note">Describe the decision you want the agent to support. Follow-up prompts can reuse recent memory.</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<div class="player-strip"><span class="player-dot"></span><span>Ready for perceive → plan → act → observe</span></div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown(
+            """
+            <div class="window-bar">
+                <div class="window-title">Agent request</div>
+                <div class="window-status">Ready</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("### Ask the agent")
+        goal = st.text_area(
+            "Agent goal",
+            height=124,
+            key="goal_text",
+            label_visibility="collapsed",
+            placeholder="Example: Compare profit by customer segment and explain the strongest group.",
+        )
+        st.markdown(
+            '<div class="soft-note">Describe the decision you want the agent to support. Follow-up prompts can reuse recent memory.</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="player-strip"><span class="player-dot"></span><span>Ready for perceive → plan → act → observe</span></div>',
+            unsafe_allow_html=True,
+        )
 
 loaded_csv = read_input_data(uploaded, header_mode, DEFAULT_MAX_ANALYSIS_ROWS)
 current_request_id = (loaded_csv.source_id, goal)
@@ -459,17 +385,16 @@ if not loaded_csv.error:
     preview_clarification = clarification_context(goal, preview_profile)
 
 with context_col:
-    st.markdown('<div class="context-card">', unsafe_allow_html=True)
-    st.markdown("### Runtime context")
-    st.metric("Memory turns", len(st.session_state.conversation_memory))
-    st.metric("LLM mode", "Enabled" if config.ready else "Fallback")
-    if loaded_csv.error:
-        st.error("CSV not ready")
-    else:
-        assert preview_profile is not None
-        st.caption(loaded_csv.source_name)
-        st.caption(f"{preview_profile.row_count} loaded rows / {loaded_csv.original_row_count} source rows")
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("### Runtime context")
+        st.metric("Memory turns", len(st.session_state.conversation_memory))
+        st.metric("LLM mode", "Enabled" if config.ready else "Fallback")
+        if loaded_csv.error:
+            st.error("CSV not ready")
+        else:
+            assert preview_profile is not None
+            st.caption(loaded_csv.source_name)
+            st.caption(f"{preview_profile.row_count} loaded rows / {loaded_csv.original_row_count} source rows")
 
 if loaded_csv.error:
     st.error(loaded_csv.error)
