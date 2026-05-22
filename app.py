@@ -415,7 +415,7 @@ else:
         if preview_clarification["requires_user_input"]:
             st.warning("The goal is not interpretable enough to choose safe actions. Choose a suggested focus before running the agent.")
         else:
-            st.info("The goal is broad. Choose a suggested focus or run the agent with the first suggestion as planning context.")
+            st.info("The goal is broad. Choose a suggested focus or run a conservative baseline analysis.")
         cols = st.columns(len(suggestions))
         for index, suggestion in enumerate(suggestions):
             with cols[index]:

@@ -108,6 +108,25 @@ class PlannerTest(unittest.TestCase):
 
         self.assertIn("text_analysis", tools)
         self.assertIn("topic_modeling", tools)
+        self.assertNotIn("chart_generation", tools)
+
+    def test_text_only_default_does_not_chart_raw_text_values(self):
+        df = pd.DataFrame(
+            {
+                "customer_feedback": [
+                    "The onboarding was smooth and the dashboard was easy to understand.",
+                    "Exporting reports is slow and confusing for my team.",
+                    "The dashboard is useful but notification emails are too frequent.",
+                ]
+            }
+        )
+        profile = perceive_dataset(df)
+
+        tools = [step.tool_name for step in fallback_plan(profile, goal="Analyze this data")]
+
+        self.assertIn("text_analysis", tools)
+        self.assertIn("topic_modeling", tools)
+        self.assertNotIn("chart_generation", tools)
 
     def test_fallback_uses_prediction_focus(self):
         df = pd.DataFrame({"week": [1, 2, 3, 4], "sales": [100, 110, 130, 150]})

@@ -138,7 +138,7 @@ def fallback_plan(
     if focused:
         return _deduplicate_steps(focused)[:MAX_PLAN_STEPS]
 
-    return _deduplicate_steps(_default_steps(candidates, scores))[:MAX_PLAN_STEPS]
+    return _deduplicate_steps(_default_steps(candidates, scores, profile))[:MAX_PLAN_STEPS]
 
 
 def _candidate_steps(profile: DatasetProfile) -> list[PlanStep]:
@@ -284,7 +284,6 @@ def _focus_steps(candidates: list[PlanStep], goal: str) -> list[PlanStep]:
     elif _goal_has_any(lowered, ("text", "feedback", "comment", "review", "sentiment", "keyword", "theme", "topic")):
         add("text_analysis")
         add("topic_modeling")
-        add("chart_generation")
     elif _goal_has_any(lowered, ("predict", "forecast", "model", "estimate", "projection", "future")):
         add("predictive_modeling")
         add("trend_analysis")
@@ -314,8 +313,9 @@ def _focus_steps(candidates: list[PlanStep], goal: str) -> list[PlanStep]:
     return selected
 
 
-def _default_steps(candidates: list[PlanStep], scores: dict[str, float]) -> list[PlanStep]:
+def _default_steps(candidates: list[PlanStep], scores: dict[str, float], profile: DatasetProfile) -> list[PlanStep]:
     by_tool = {step.tool_name: step for step in candidates}
+    text_only = bool(profile.text_columns) and not profile.numeric_columns
     preferred_order = [
         "dataset_summary",
         "missing_value_check",
@@ -325,8 +325,9 @@ def _default_steps(candidates: list[PlanStep], scores: dict[str, float]) -> list
         "date_quality_check",
         "text_analysis",
         "topic_modeling",
-        "chart_generation",
     ]
+    if not text_only:
+        preferred_order.append("chart_generation")
     selected = [by_tool[tool] for tool in preferred_order if tool in by_tool]
     head = selected[:1]
     tail = sorted(selected[1:], key=lambda step: scores.get(step.tool_name, 1.0), reverse=True)
@@ -358,6 +359,7 @@ def _request_llm_plan(
         "goal": goal,
         "dataset_profile": profile.to_dict(),
         "allowed_tools": ALLOWED_TOOL_DESCRIPTIONS,
+        "recommended_applicable_tools": [step.tool_name for step in _candidate_steps(profile)],
         "feedback_scores": tool_scores,
         "required_schema": {
             "tools": [
@@ -380,10 +382,15 @@ def _request_llm_plan(
             "Prefer causal_risk_analysis for causal, impact, driver, why, or effect goals, but never claim causality from CSV alone.",
             "Prefer group_comparison for compare, region, category, segment, strongest, or weakest goals.",
             "Use group_comparison only when categorical and numeric columns are both available.",
+            "Do not use group_comparison for ID-like or high-cardinality categorical columns.",
+            "If dataset_profile.generic_column_names is true, keep planning conservative unless the user goal names a clear column intent.",
             "Prefer correlation_analysis for relationship, discount, profit, or risk goals.",
             "Use correlation_analysis only when at least two numeric columns are available.",
+            "For numeric-only datasets, prefer summary, correlation, and visual distribution; do not invent categorical groups.",
+            "For small datasets under 20 rows, treat statistical testing and predictive modeling as exploratory and select them only when the user explicitly asks.",
             "Prefer missing_value_check for quality, missing, audit, or reliability goals.",
             "Use missing_value_check only when missing values exist.",
+            "For text-only datasets, prefer text_analysis and topic_modeling; do not use chart_generation to count raw full-sentence values.",
             "Do not request arbitrary code execution or unknown tools.",
         ],
     }

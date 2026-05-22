@@ -97,9 +97,10 @@ def suggest_clarifications(profile: DatasetProfile) -> list[str]:
             f"Analyze the trend of {profile.numeric_columns[0]} over {profile.date_columns[0]} and identify recent changes."
         )
 
-    if profile.categorical_columns and profile.numeric_columns:
+    group_columns = _usable_suggestion_group_columns(profile)
+    if group_columns and profile.numeric_columns:
         suggestions.append(
-            f"Compare average {profile.numeric_columns[0]} across {profile.categorical_columns[0]} and identify the strongest group."
+            f"Compare average {profile.numeric_columns[0]} across {group_columns[0]} and identify the strongest group."
         )
 
     if len(profile.numeric_columns) >= 2:
@@ -141,6 +142,15 @@ def goal_has_analysis_intent(goal: str, profile: DatasetProfile) -> bool:
 
 
 def _planning_goal(goal: str, suggestions: list[str], requires_user_input: bool) -> str:
-    if not suggestions or requires_user_input:
-        return goal
-    return f"{goal}\nClarification suggestion used for planning: {suggestions[0]}"
+    return goal
+
+
+def _usable_suggestion_group_columns(profile: DatasetProfile) -> list[str]:
+    row_count = max(profile.row_count, 1)
+    threshold = min(30, max(2, int(row_count * 0.5)))
+    return [
+        column
+        for column in profile.categorical_columns
+        if 1 < profile.categorical_cardinality.get(column, 0) <= threshold
+        and not (profile.generic_column_names and column.lower().startswith("column_"))
+    ]

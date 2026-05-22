@@ -291,7 +291,7 @@ def _next_step(goal: str, profile: DatasetProfile, observations: list[str]) -> s
         return "Review the highest and lowest groups in the group comparison table and investigate what drives the gap."
     if not profile.numeric_columns:
         return "Use a text-specific method such as sentiment or topic analysis if deeper feedback interpretation is required."
-    return "Review the generated table and chart, then give feedback so the agent can prioritize better tools in the next run."
+    return "Review the generated outputs, then give feedback so the agent can prioritize better tools in the next run."
 
 
 def _caveats(
@@ -322,6 +322,13 @@ def _caveats(
         caveats.append("Column names look auto-generated, so the agent keeps interpretation broad until headers are clarified.")
     if profile.inferred_numeric_columns:
         caveats.append(f"Numeric-looking strings were converted for analysis: {', '.join(profile.inferred_numeric_columns)}.")
+    high_cardinality_columns = _high_cardinality_columns(profile)
+    if high_cardinality_columns:
+        caveats.append(
+            "High-cardinality categorical columns were treated as identifiers rather than grouping fields: "
+            + ", ".join(high_cardinality_columns)
+            + "."
+        )
     if any(observation.startswith("Audited causal risk") for observation in observations):
         caveats.append("Causal findings are hypothesis-generating only because the data is observational.")
     if any(observation.startswith("Built a simple predictive model") for observation in observations):
@@ -335,6 +342,16 @@ def _caveats(
     if any(observation.startswith("Skipped ") for observation in observations):
         caveats.append("At least one requested analysis was skipped because the dataset did not support it.")
     return caveats
+
+
+def _high_cardinality_columns(profile: DatasetProfile) -> list[str]:
+    row_count = max(profile.row_count, 1)
+    threshold = min(30, max(2, int(row_count * 0.5)))
+    return [
+        column
+        for column, cardinality in profile.categorical_cardinality.items()
+        if cardinality > threshold
+    ]
 
 
 def _memory_context(prior_context: list[dict]) -> dict:

@@ -35,7 +35,7 @@ class ClarificationTest(unittest.TestCase):
         self.assertGreaterEqual(len(suggestions), 2)
         self.assertIn("sales", suggestions[0])
 
-    def test_context_adds_planning_goal_for_ambiguous_prompt(self):
+    def test_context_keeps_broad_goal_conservative(self):
         df = pd.DataFrame({"sales": [100, 120], "profit": [20, 30]})
         profile = perceive_dataset(df)
 
@@ -43,7 +43,7 @@ class ClarificationTest(unittest.TestCase):
 
         self.assertTrue(context["ambiguous"])
         self.assertFalse(context["requires_user_input"])
-        self.assertIn("Clarification suggestion used for planning", context["planning_goal"])
+        self.assertEqual(context["planning_goal"], "help me analyze")
 
     def test_missing_values_are_suggested_first(self):
         df = pd.DataFrame({"date": ["2026-01-01", None], "sales": [100, None]})
