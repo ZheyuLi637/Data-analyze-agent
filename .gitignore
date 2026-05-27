@@ -6,4 +6,4 @@ __pycache__/
 .pytest_cache/
 .streamlit/secrets.toml
 assets/generated/
-
+report/

@@ -2,6 +2,12 @@
 
 This project is a small intelligent software agent prototype for COMPSCI 767. It takes a user goal and a CSV dataset, perceives the dataset state, plans analysis actions with an external OpenAI-compatible LLM API, validates the plan, executes safe local analysis tools, observes results, and updates future tool preferences from feedback.
 
+## Demo Video
+
+[Watch the 2-minute demo video](https://docs.google.com/videos/d/1m1gszfe3s03AKiceb-txTS5ZC2ppyNMh3z9RxY42tXg/edit?usp=drive_link)
+
+The demo shows the working agent loop: CSV upload, user goal, LLM or fallback planning, validated tool execution, charts/tables, final answer, trace inspection, and feedback memory.
+
 ## Why this is an agent, not just a chatbot
 
 The system does not only respond with text. It follows an agent loop:
@@ -21,28 +27,51 @@ This maps to course concepts: environment, observation/state, action, policy, to
 
 ## Features
 
-- Streamlit interface for upload, goal input, trace inspection, charts, tables, and feedback.
-- Need-specific visuals: correlation heatmap plus scatter, side-by-side group rankings, multi-metric trends with rolling average, and distribution plus boxplot views.
-- Goal-aware column intent matching for choosing the most relevant metric, group, and date columns.
-- Chart explanations in tool observations and final answers, so the user can interpret each visual without guessing.
-- Deeper missing-value diagnostics with affected-row rates, severity labels, and grouped concentration checks.
-- Large CSV row limiting so analysis stays responsive on oversized uploads.
-- Auto header detection for CSV exports with preamble rows before the actual table.
-- Date quality gating for mixed or messy date formats before trend analysis.
-- Text analysis for feedback/comment datasets, including TF-IDF keywords, lexicon sentiment, and topic-style recurring theme groups with example rows.
-- Advanced but bounded statistics: Bonferroni-adjusted Pearson checks, lightweight ANOVA, train/test predictive baselines, confidence interval labels, and causal-risk auditing that prevents unsupported causal claims.
-- Reliability guardrails for high-cardinality grouping, prompt injection attempts, numeric-looking strings, and unsupported tool requests.
-- Stronger conversation memory so follow-up prompts can reuse the previous goal, previous tools, and prior answer summary.
-- Ambiguous goal detection with dataset-specific clarification suggestions.
-- Stable CSV upload state handling that clears stale results when the file, header setting, or goal changes.
-- OpenAI-compatible LLM configuration through environment variables.
-- Deterministic fallback planner when no API key is available or the LLM fails.
-- Goal-aware fallback planning so trend, group comparison, relationship, and quality prompts choose different tool paths.
-- Safe predefined analysis tools; the LLM never executes arbitrary code.
-- Safety guardrails that block requests to bypass validation, run arbitrary Python, execute shell commands, or inspect local files.
-- Evaluation dashboard that runs deterministic edge-case checks and reports pass/fail results inside the app.
-- Lightweight feedback memory that adjusts future tool priorities.
-- Unit tests for perception, planning, tool execution, and feedback.
+### 1. Core agent workflow
+
+- Upload a CSV file and enter a user analysis goal.
+- Inspect the final answer, tool outputs, charts, tables, and feedback controls.
+- View the full agent trace: perceive, plan, act, and observe.
+
+### 2. Dataset perception
+
+- Detect numeric, categorical, date, and text columns.
+- Detect missing values, messy dates, high-cardinality columns, and empty datasets.
+- Handle messy CSV headers, no-header CSV files, large CSV files, and numeric-looking strings such as `$99.5` or `35%`.
+
+### 3. Analysis tools
+
+- Generate dataset summaries, missing-value checks, correlations, group comparisons, trends, charts, text analysis, statistical tests, and predictive baselines.
+- Use goal-aware column intent matching to choose the most relevant metric, group, and date columns.
+- Use bounded statistical methods such as Bonferroni-adjusted Pearson checks, lightweight ANOVA, confidence interval labels, and train/test predictive baselines.
+
+### 4. Charts and explanations
+
+- Generate need-specific visuals such as correlation heatmaps, scatter plots, group ranking charts, trend charts, distribution plots, and boxplots.
+- Explain charts in tool observations and final answers so the user can interpret the visualization.
+
+### 5. LLM planning and fallback
+
+- Use an OpenAI-compatible LLM provider to help choose analysis actions.
+- Keep execution local and safe; the LLM can select tools but cannot run arbitrary code.
+- Fall back to deterministic planning when no API key is available, the model fails, or the output is invalid.
+
+### 6. Safety and guardrails
+
+- Validate every LLM-selected tool against an allowlist.
+- Block prompt injection, arbitrary Python execution, shell command requests, local file inspection, and unsupported tool requests.
+- Prevent misleading analysis by skipping unsuitable tools for text-only, numeric-only, messy-date, high-cardinality, and small-sample datasets.
+
+### 7. Memory and feedback
+
+- Store lightweight conversation memory for follow-up questions.
+- Update tool scores from useful or not useful feedback.
+- Detect ambiguous goals and suggest clearer dataset-specific analysis goals.
+
+### 8. Evaluation
+
+- Provide an Evaluation Dashboard with deterministic edge-case checks.
+- Include unit tests for perception, planning, tool execution, guardrails, feedback, and evaluation behavior.
 
 ## Setup
 
@@ -73,17 +102,25 @@ You can either export variables in the terminal or create a local `.env` file. `
 ```bash
 export LLM_ENABLED=true
 export LLM_API_KEY="your-api-key"
-export LLM_BASE_URL="https://openrouter.ai/api/v1"
-export LLM_MODEL="openrouter/owl-alpha"
+export LLM_BASE_URL="https://api.groq.com/openai/v1"
+export LLM_MODEL="openai/gpt-oss-120b"
 streamlit run app.py
 ```
 
 Example provider settings:
 
 ```bash
+# Groq
+export LLM_BASE_URL="https://api.groq.com/openai/v1"
+export LLM_MODEL="openai/gpt-oss-120b"
+
+# Cerebras
+export LLM_BASE_URL="https://api.cerebras.ai/v1"
+export LLM_MODEL="gpt-oss-120b"
+
 # OpenRouter
 export LLM_BASE_URL="https://openrouter.ai/api/v1"
-export LLM_MODEL="openrouter/owl-alpha"
+export LLM_MODEL="deepseek/deepseek-v4-flash:free"
 export LLM_APP_NAME="COMPSCI 767 Data Analysis Agent"
 export LLM_SITE_URL="http://localhost:8502"
 
@@ -123,36 +160,36 @@ The `data/` folder includes datasets for manual edge-case testing:
 - `edge_high_cardinality.csv`: high-cardinality ID grouping; should skip unreadable group comparison output.
 - `edge_numeric_strings.csv`: currency and percent strings; should infer numeric columns for analysis.
 
-## Demo Video
-
-Add the final two-minute demo link here after recording:
-
-```text
-Demo video: TODO
-```
-
-The demo should show: sample CSV, user goal, LLM or fallback plan, validated actions, charts/tables, final answer, and feedback score update.
-
-## Report
-
-The draft two-page Word report is in:
-
-```text
-report/COMPSCI767_Data_Analysis_Agent_Report.docx
-```
-
-Replace the GitHub and demo-video placeholders before final submission.
-
 ## Commit Checkpoints
 
-Suggested local checkpoint history:
+Brief design evolution recorded in the repository history:
 
-1. `Initial Streamlit data agent skeleton`
-2. `Add dataset perception and state extraction`
-3. `Add OpenAI-compatible LLM planner`
-4. `Add safe analysis tools and validation`
-5. `Expose ReAct-style trace and feedback memory`
-6. `Add tests, README, report assets, and demo link`
+1. `c8ae0c9 Initial data agent project skeleton`: created the Streamlit prototype and basic agent run path.
+2. `0b8cbe4 Add dataset perception and state extraction`: added dataset profiling for rows, columns, numeric/categorical/date/text fields, and missing values.
+3. `fcaf9c2 Add OpenAI-compatible LLM planner`: added provider-neutral LLM planning through environment variables.
+4. `4f69eac Add safe analysis tools and chart generation`: added allowlisted pandas/matplotlib tools so the LLM cannot execute arbitrary code.
+5. `aebdebd Expose agent trace and feedback memory`: made the perceive-plan-act-observe loop visible and added reward-like feedback.
+6. `9d17cf2 Add safety guardrails and goal-aware fallback planning`: added prompt safety checks and deterministic behavior when no API key is available.
+7. `ca62492 Add advanced need-specific charts`: improved visuals so charts match the analysis goal instead of using one generic chart type.
+8. `4a94841 Add evaluation dashboard`: added deterministic edge-case testing inside the app.
+9. `225803e Harden analysis tools and evaluation`: improved reliability for high-cardinality groups, statistics, text analysis, and error messages.
+10. `9b7c0fa Tighten planner for edge datasets`: improved tool selection for no-header, numeric-only, high-cardinality, and small-sample datasets.
+
+## Repository Contents
+
+- `app.py`: Streamlit interface and user workflow.
+- `agent/`: perception, planning, LLM client, tool execution, memory, and core agent loop.
+- `data/`: sample and edge-case CSV files for manual testing.
+- `tests/`: unit tests for agent decisions, tools, guardrails, and evaluation behavior.
+- `.env.example`: safe template for optional LLM provider configuration.
+
+## Future Work
+
+- Add richer multi-turn reasoning so the agent can decompose longer analysis goals across several dependent steps.
+- Add stronger statistical modeling with clearer assumptions, model diagnostics, and uncertainty reporting.
+- Extend text analysis with embeddings or topic modeling libraries for larger feedback datasets.
+- Add optional export of the final answer, trace, tables, and charts into a report-ready PDF.
+- Add a hosted deployment option so graders can run the app without local setup.
 
 ## Safety Boundaries
 
